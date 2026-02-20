@@ -206,10 +206,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             "Reader.textLineSpacing": 8,
             "Reader.textHorizontalPadding": 24
         ]
-        for (key, value) in textReaderNumberDefaults {
-            if UserDefaults.standard.object(forKey: key) == nil {
-                UserDefaults.standard.set(value, forKey: key)
-            }
+        for (key, value) in textReaderNumberDefaults where UserDefaults.standard.object(forKey: key) == nil {
+            UserDefaults.standard.set(value, forKey: key)
         }
         // check for icloud availability
         // https://developer.apple.com/documentation/foundation/filemanager/url(forubiquitycontaineridentifier:)

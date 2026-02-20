@@ -36,7 +36,7 @@ class ReaderPagedTextViewController: BaseObservingViewController {
 
     // Override to always return LTR for text
     private var effectiveReadingMode: ReadingMode {
-        return .ltr  // Text always reads left-to-right
+        .ltr  // Text always reads left-to-right
     }
 
     private let paginator = TextPaginator()
@@ -639,4 +639,3 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
         return currentPageIndex
     }
 }
-

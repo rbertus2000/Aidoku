@@ -330,4 +330,3 @@ extension TextPaginator {
         )
     }
 }
-
