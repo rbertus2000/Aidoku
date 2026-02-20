@@ -168,7 +168,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 "Reader.orientation": "device",
 
                 // Text Reader defaults
-                "Reader.textReaderStyle": "paged",
+                "Reader.textReaderStyle": "scroll",
                 "Reader.textFontFamily": "System",
                 "Reader.textFontSize": 18,
                 "Reader.textLineSpacing": 8,
@@ -211,10 +211,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 UserDefaults.standard.set(value, forKey: key)
             }
         }
-        if UserDefaults.standard.string(forKey: "Reader.textFontFamily") == nil {
-            UserDefaults.standard.set("Georgia", forKey: "Reader.textFontFamily")
-        }
-
         // check for icloud availability
         // https://developer.apple.com/documentation/foundation/filemanager/url(forubiquitycontaineridentifier:)
         // Do not call this method from your app’s main thread. Because this method might take a nontrivial amount of

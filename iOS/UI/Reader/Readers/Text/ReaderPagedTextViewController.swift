@@ -9,8 +9,8 @@
 //
 
 import AidokuRunner
-import UIKit
 import SwiftUI
+import UIKit
 import ZIPFoundation
 
 class ReaderPagedTextViewController: BaseObservingViewController {
@@ -45,7 +45,9 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     private var currentCharacterOffset = 0  // Character offset for position restoration after repagination
     private var isLoadingChapter = false  // Prevent race conditions
     private var lastPaginationSize: CGSize = .zero  // Track size to avoid repagination loops
-    private var pendingStartPage: Int?  // Track requested start page for after pagination
+    /// Tracks the requested start page (from reading history) so `repaginate()` can
+    /// restore the correct position after the initial pagination completes.
+    private var pendingStartPage: Int?
 
     // MARK: - Persistent Character Offset
 
@@ -115,17 +117,11 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         }
 
         // Text reader settings
-        addObserver(forName: "Reader.textFontSize") { [weak self] _ in
+        let textSettingChanged: (Notification) -> Void = { [weak self] _ in
             self?.updateTextConfig()
         }
-        addObserver(forName: "Reader.textLineSpacing") { [weak self] _ in
-            self?.updateTextConfig()
-        }
-        addObserver(forName: "Reader.textHorizontalPadding") { [weak self] _ in
-            self?.updateTextConfig()
-        }
-        addObserver(forName: "Reader.textFontFamily") { [weak self] _ in
-            self?.updateTextConfig()
+        for key in ["Reader.textFontSize", "Reader.textLineSpacing", "Reader.textHorizontalPadding", "Reader.textFontFamily"] {
+            addObserver(forName: key, using: textSettingChanged)
         }
     }
 
@@ -208,15 +204,15 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     private func updatePageLayout() {
         usesAutoPageLayout = false
         switch UserDefaults.standard.string(forKey: "Reader.pagedPageLayout") {
-        case "single":
-            usesDoublePages = false
-        case "double":
-            usesDoublePages = true
-        case "auto":
-            usesAutoPageLayout = true
-            usesDoublePages = view.bounds.width > view.bounds.height
-        default:
-            usesDoublePages = false
+            case "single":
+                usesDoublePages = false
+            case "double":
+                usesDoublePages = true
+            case "auto":
+                usesAutoPageLayout = true
+                usesDoublePages = view.bounds.width > view.bounds.height
+            default:
+                usesDoublePages = false
         }
     }
 
@@ -227,12 +223,8 @@ class ReaderPagedTextViewController: BaseObservingViewController {
             return
         }
 
-        // Make sure we have valid bounds
+        // Wait for valid bounds — viewDidLayoutSubviews will trigger repagination
         guard view.bounds.width > 0 && view.bounds.height > 0 else {
-            // Defer pagination until layout is complete
-            DispatchQueue.main.async { [weak self] in
-                self?.repaginate()
-            }
             return
         }
 
@@ -446,10 +438,10 @@ extension ReaderPagedTextViewController: ReaderReaderDelegate {
     func moveLeft() {
         let targetIndex: Int
         switch effectiveReadingMode {
-        case .rtl:
-            targetIndex = currentPageIndex + (usesDoublePages ? 2 : 1)
-        default:
-            targetIndex = currentPageIndex - (usesDoublePages ? 2 : 1)
+            case .rtl:
+                targetIndex = currentPageIndex + (usesDoublePages ? 2 : 1)
+            default:
+                targetIndex = currentPageIndex - (usesDoublePages ? 2 : 1)
         }
 
         if targetIndex >= 0 && targetIndex < pages.count {
@@ -463,10 +455,10 @@ extension ReaderPagedTextViewController: ReaderReaderDelegate {
     func moveRight() {
         let targetIndex: Int
         switch effectiveReadingMode {
-        case .rtl:
-            targetIndex = currentPageIndex - (usesDoublePages ? 2 : 1)
-        default:
-            targetIndex = currentPageIndex + (usesDoublePages ? 2 : 1)
+            case .rtl:
+                targetIndex = currentPageIndex - (usesDoublePages ? 2 : 1)
+            default:
+                targetIndex = currentPageIndex + (usesDoublePages ? 2 : 1)
         }
 
         if targetIndex >= 0 && targetIndex < pages.count {
@@ -587,10 +579,10 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
 
         let nextIndex: Int
         switch effectiveReadingMode {
-        case .rtl:
-            nextIndex = currentIndex - (usesDoublePages ? 2 : 1)
-        default:
-            nextIndex = currentIndex + (usesDoublePages ? 2 : 1)
+            case .rtl:
+                nextIndex = currentIndex - (usesDoublePages ? 2 : 1)
+            default:
+                nextIndex = currentIndex + (usesDoublePages ? 2 : 1)
         }
 
         if nextIndex >= 0 && nextIndex < pages.count {
@@ -619,10 +611,10 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
 
         let prevIndex: Int
         switch effectiveReadingMode {
-        case .rtl:
-            prevIndex = currentIndex + (usesDoublePages ? 2 : 1)
-        default:
-            prevIndex = currentIndex - (usesDoublePages ? 2 : 1)
+            case .rtl:
+                prevIndex = currentIndex + (usesDoublePages ? 2 : 1)
+            default:
+                prevIndex = currentIndex - (usesDoublePages ? 2 : 1)
         }
 
         if prevIndex >= 0 && prevIndex < pages.count {
@@ -648,295 +640,3 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
     }
 }
 
-// MARK: - Single Page View Controller
-class TextSinglePageViewController: UIViewController {
-
-    let page: TextPage
-    weak var parentReader: ReaderPagedTextViewController?
-
-    private lazy var textView: UITextView = {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .systemBackground
-        tv.font = .systemFont(ofSize: 18)
-        // Content padding (matches TextPaginator)
-        tv.textContainerInset = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
-        return tv
-    }()
-
-    // Dynamic constraints for safe area
-    private var topConstraint: NSLayoutConstraint?
-    private var leadingConstraint: NSLayoutConstraint?
-    private var trailingConstraint: NSLayoutConstraint?
-    private var bottomConstraint: NSLayoutConstraint?
-
-    init(page: TextPage, parentReader: ReaderPagedTextViewController? = nil) {
-        self.page = page
-        self.parentReader = parentReader
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        view.backgroundColor = .systemBackground
-        view.addSubview(textView)
-
-        textView.translatesAutoresizingMaskIntoConstraints = false
-
-        // Create constraints that we can update later
-        topConstraint = textView.topAnchor.constraint(equalTo: view.topAnchor)
-        leadingConstraint = textView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        trailingConstraint = textView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        bottomConstraint = textView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        NSLayoutConstraint.activate([topConstraint!, leadingConstraint!, trailingConstraint!, bottomConstraint!])
-
-        // Set the text content
-        if page.attributedContent.length > 0 {
-            textView.attributedText = page.attributedContent
-        } else {
-            textView.text = page.markdownContent
-        }
-    }
-
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-
-        // Get safe area from parent reader (more reliable than child's safe area)
-        let safeArea = parentReader?.view.safeAreaInsets ?? view.safeAreaInsets
-
-        topConstraint?.constant = safeArea.top
-        leadingConstraint?.constant = safeArea.left
-        trailingConstraint?.constant = -safeArea.right
-        bottomConstraint?.constant = -safeArea.bottom
-
-    }
-}
-
-// MARK: - Double Page View Controller
-class TextDoublePageViewController: UIViewController {
-
-    enum Direction {
-        case ltr
-        case rtl
-    }
-
-    let leftPage: TextPage
-    let rightPage: TextPage
-    let direction: Direction
-    weak var parentReader: ReaderPagedTextViewController?
-
-    private lazy var stackView: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .horizontal
-        sv.distribution = .fillEqually
-        sv.spacing = 1
-        return sv
-    }()
-
-    private lazy var leftTextView: UITextView = createTextView()
-    private lazy var rightTextView: UITextView = createTextView()
-    private lazy var dividerView: UIView = {
-        let v = UIView()
-        v.backgroundColor = .separator
-        return v
-    }()
-
-    // Dynamic constraints for safe area
-    private var topConstraint: NSLayoutConstraint?
-    private var leadingConstraint: NSLayoutConstraint?
-    private var trailingConstraint: NSLayoutConstraint?
-    private var bottomConstraint: NSLayoutConstraint?
-
-    init(leftPage: TextPage, rightPage: TextPage, direction: Direction, parentReader: ReaderPagedTextViewController? = nil) {
-        self.leftPage = leftPage
-        self.rightPage = rightPage
-        self.direction = direction
-        self.parentReader = parentReader
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        view.backgroundColor = .systemBackground
-
-        view.addSubview(dividerView)
-        dividerView.translatesAutoresizingMaskIntoConstraints = false
-
-        view.addSubview(stackView)
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        if direction == .rtl {
-            stackView.addArrangedSubview(rightTextView)
-            stackView.addArrangedSubview(leftTextView)
-            rightTextView.attributedText = rightPage.attributedContent
-            leftTextView.attributedText = leftPage.attributedContent
-        } else {
-            stackView.addArrangedSubview(leftTextView)
-            stackView.addArrangedSubview(rightTextView)
-            leftTextView.attributedText = leftPage.attributedContent
-            rightTextView.attributedText = rightPage.attributedContent
-        }
-
-        // Create dynamic constraints
-        topConstraint = stackView.topAnchor.constraint(equalTo: view.topAnchor)
-        leadingConstraint = stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        trailingConstraint = stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        bottomConstraint = stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
-        NSLayoutConstraint.activate([
-            topConstraint!, leadingConstraint!, trailingConstraint!, bottomConstraint!,
-            dividerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            dividerView.topAnchor.constraint(equalTo: stackView.topAnchor, constant: 20),
-            dividerView.bottomAnchor.constraint(equalTo: stackView.bottomAnchor, constant: -20),
-            dividerView.widthAnchor.constraint(equalToConstant: 1)
-        ])
-    }
-
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-
-        let safeArea = parentReader?.view.safeAreaInsets ?? view.safeAreaInsets
-
-        topConstraint?.constant = safeArea.top
-        leadingConstraint?.constant = safeArea.left
-        trailingConstraint?.constant = -safeArea.right
-        bottomConstraint?.constant = -safeArea.bottom
-
-    }
-
-    private func createTextView() -> UITextView {
-        let tv = UITextView()
-        tv.isEditable = false
-        tv.isScrollEnabled = false
-        tv.backgroundColor = .systemBackground
-        // Must match TextPaginator's padding: horizontalPadding=24, verticalPadding=32
-        tv.textContainerInset = UIEdgeInsets(top: 32, left: 24, bottom: 32, right: 24)
-        return tv
-    }
-}
-
-// MARK: - Chapter Transition View Controller
-class ChapterTransitionViewController: UIViewController {
-
-    enum Direction {
-        case next
-        case previous
-    }
-
-    let direction: Direction
-    let chapter: AidokuRunner.Chapter?
-    weak var parentReader: ReaderPagedTextViewController?
-
-    private lazy var stackView: UIStackView = {
-        let sv = UIStackView()
-        sv.axis = .vertical
-        sv.alignment = .center
-        sv.spacing = 16
-        return sv
-    }()
-
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 14, weight: .medium)
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        return label
-    }()
-
-    private lazy var chapterLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 20, weight: .semibold)
-        label.textColor = .label
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        return label
-    }()
-
-    private lazy var instructionLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 14)
-        label.textColor = .tertiaryLabel
-        label.textAlignment = .center
-        return label
-    }()
-
-    init(direction: Direction, chapter: AidokuRunner.Chapter?, parentReader: ReaderPagedTextViewController?) {
-        self.direction = direction
-        self.chapter = chapter
-        self.parentReader = parentReader
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        view.backgroundColor = .systemBackground
-
-        view.addSubview(stackView)
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            stackView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            stackView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            stackView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
-            stackView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32)
-        ])
-
-        stackView.addArrangedSubview(titleLabel)
-        stackView.addArrangedSubview(chapterLabel)
-        stackView.addArrangedSubview(instructionLabel)
-
-        if let chapter {
-            titleLabel.text = direction == .next
-                ? NSLocalizedString("NEXT_CHAPTER")
-                : NSLocalizedString("PREVIOUS_CHAPTER")
-
-            if let chapterNum = chapter.chapterNumber {
-                chapterLabel.text = String(format: NSLocalizedString("CHAPTER_X", comment: ""), chapterNum)
-            } else {
-                chapterLabel.text = chapter.title ?? ""
-            }
-
-            instructionLabel.text = direction == .next
-                ? NSLocalizedString("SWIPE_TO_CONTINUE")
-                : NSLocalizedString("SWIPE_TO_GO_BACK")
-        } else {
-            titleLabel.text = direction == .next
-                ? NSLocalizedString("NO_NEXT_CHAPTER")
-                : NSLocalizedString("NO_PREVIOUS_CHAPTER")
-            chapterLabel.text = direction == .next
-                ? NSLocalizedString("END_OF_MANGA")
-                : NSLocalizedString("START_OF_MANGA")
-            instructionLabel.isHidden = true
-        }
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        // Load the chapter when this view appears (user swiped to it)
-        if let chapter {
-            if direction == .next {
-                parentReader?.loadNextChapter()
-            } else {
-                parentReader?.loadPreviousChapter()
-            }
-        }
-    }
-}
