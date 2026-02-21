@@ -27,6 +27,7 @@ class ReaderTextViewController: BaseViewController {
     private var pendingScrollRestore = false
     private var isReportingProgress = false
     private var lastReportedPage = 0
+    private var needsPageCountUpdate = false
 
     // MARK: - Scroll Position Persistence
 
@@ -175,6 +176,16 @@ class ReaderTextViewController: BaseViewController {
         super.viewDidLayoutSubviews()
 
         hostingController?.view.invalidateIntrinsicContentSize()
+
+        // One-shot page count update after content is laid out
+        if needsPageCountUpdate {
+            let contentHeight = scrollView.contentSize.height
+            let screenHeight = scrollView.frame.size.height
+            if contentHeight > screenHeight, screenHeight > 0 {
+                needsPageCountUpdate = false
+                estimatedPageCount = max(1, Int(ceil(contentHeight / screenHeight)))
+            }
+        }
     }
 
     private func updateFooter() {
@@ -256,12 +267,8 @@ class ReaderTextViewController: BaseViewController {
             // Force scroll view to recalculate content size
             view.layoutIfNeeded()
 
-            // Calculate estimated pages after layout
-            let screenHeight = scrollView.frame.size.height
-            let contentHeight = scrollView.contentSize.height
-            if screenHeight > 0, contentHeight > 0 {
-                estimatedPageCount = max(1, Int(ceil(contentHeight / screenHeight)))
-            }
+            // Flag for page count calculation once content is laid out
+            needsPageCountUpdate = true
 
             // Restore saved scroll position or scroll to top
             if restorePosition, let savedProgress = loadScrollProgress(for: chapter.key) {
