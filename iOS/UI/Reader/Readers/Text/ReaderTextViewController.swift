@@ -176,9 +176,13 @@ class ReaderTextViewController: BaseViewController {
         updateEstimatedPages()
     }
 
+    private var isUpdatingPages = false
+
     /// Recalculate estimated page count based on content vs screen height
     /// and report placeholder pages to the toolbar.
     private func updateEstimatedPages() {
+        guard !isUpdatingPages else { return }
+
         let contentHeight = scrollView.contentSize.height
         let screenHeight = scrollView.frame.size.height
         guard contentHeight > 0, screenHeight > 0 else { return }
@@ -188,6 +192,7 @@ class ReaderTextViewController: BaseViewController {
         estimatedPageCount = newCount
 
         // Build placeholder pages so the toolbar knows the total
+        isUpdatingPages = true
         let sourceId = viewModel.source?.key ?? viewModel.manga.sourceKey
         let chapterId = chapter?.key ?? ""
         let placeholderPages: [Page] = (0..<estimatedPageCount).map { index in
@@ -197,6 +202,7 @@ class ReaderTextViewController: BaseViewController {
             return page
         }
         delegate?.setPages(placeholderPages)
+        isUpdatingPages = false
     }
 
     private func updateFooter() {
