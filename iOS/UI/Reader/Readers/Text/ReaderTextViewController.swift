@@ -16,12 +16,29 @@ class ReaderTextViewController: BaseViewController {
     var delegate: (any ReaderHoldingDelegate)?
 
     // Chapter navigation
+    private var chapter: AidokuRunner.Chapter?
     private var previousChapter: AidokuRunner.Chapter?
     private var nextChapter: AidokuRunner.Chapter?
     private var isLoadingChapter = false
     private var hasReachedEnd = false
 
     private var isSliding = false
+    private var estimatedPageCount = 1
+    private var pendingScrollRestore = false
+
+    // MARK: - Scroll Position Persistence
+
+    /// Save scroll progress (0.0–1.0) for the current chapter.
+    private func saveScrollProgress(_ progress: CGFloat) {
+        guard let chapterKey = chapter?.key else { return }
+        UserDefaults.standard.set(Double(progress), forKey: "TextReader.scrollProgress.\(chapterKey)")
+    }
+
+    /// Load previously saved scroll progress for a chapter. Returns nil if none stored.
+    private func loadScrollProgress(for chapterKey: String) -> CGFloat? {
+        let value = UserDefaults.standard.object(forKey: "TextReader.scrollProgress.\(chapterKey)")
+        return (value as? Double).map { CGFloat($0) }
+    }
 
     private lazy var scrollView: UIScrollView = {
         let scrollView = UIScrollView()
@@ -198,9 +215,10 @@ class ReaderTextViewController: BaseViewController {
         }
     }
 
-    private func loadChapter(_ chapter: AidokuRunner.Chapter) async {
+    private func loadChapter(_ chapter: AidokuRunner.Chapter, restorePosition: Bool = true) async {
         isLoadingChapter = true
         hasReachedEnd = false
+        self.chapter = chapter
 
         await viewModel.loadPages(chapter: chapter)
         delegate?.setPages(viewModel.pages)
@@ -236,8 +254,22 @@ class ReaderTextViewController: BaseViewController {
             // Force scroll view to recalculate content size
             view.layoutIfNeeded()
 
-            // Scroll to top
-            scrollView.setContentOffset(.init(x: 0, y: 0), animated: false)
+            // Restore saved scroll position or scroll to top
+            if restorePosition, let savedProgress = loadScrollProgress(for: chapter.key) {
+                pendingScrollRestore = true
+                // Defer scroll restore until content is fully laid out
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    let totalHeight = self.scrollView.contentSize.height - self.scrollView.frame.size.height
+                    if totalHeight > 0 {
+                        let targetOffset = totalHeight * savedProgress
+                        self.scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
+                    }
+                    self.pendingScrollRestore = false
+                }
+            } else {
+                scrollView.setContentOffset(.init(x: 0, y: 0), animated: false)
+            }
 
             isLoadingChapter = false
         }
@@ -308,7 +340,7 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         guard chapter != viewModel.chapter else { return }
 
         Task {
-            await loadChapter(chapter)
+            await loadChapter(chapter, restorePosition: startPage > 0)
         }
     }
 }
@@ -316,13 +348,24 @@ extension ReaderTextViewController: ReaderReaderDelegate {
 // MARK: - Scroll View Delegate
 extension ReaderTextViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSliding else { return }
+        guard !isSliding, !pendingScrollRestore else { return }
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
         guard totalHeight > 0 else { return }
 
-        let offset = min(1, max(0, scrollView.contentOffset.y / totalHeight))
-        delegate?.setSliderOffset(offset)
+        let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
+        delegate?.setSliderOffset(progress)
+
+        // Estimate page count based on content height vs screen height
+        let screenHeight = scrollView.frame.size.height
+        if screenHeight > 0 {
+            estimatedPageCount = max(1, Int(ceil(scrollView.contentSize.height / screenHeight)))
+            let currentPage = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
+            delegate?.setCurrentPage(currentPage)
+        }
+
+        // Save scroll progress periodically
+        saveScrollProgress(progress)
 
         // Mark as completed when reaching the end (within 50pt of bottom)
         if scrollView.contentOffset.y >= totalHeight - 50 && !hasReachedEnd {
@@ -338,13 +381,13 @@ private struct ReaderTextView: View {
     let text: String?
 
     private var fontFamily: String {
-        UserDefaults.standard.string(forKey: "Reader.textFontFamily") ?? "Georgia"
+        UserDefaults.standard.string(forKey: "Reader.textFontFamily") ?? "System"
     }
     private var fontSize: Double {
-        UserDefaults.standard.object(forKey: "Reader.textFontSize") as? Double ?? 16
+        UserDefaults.standard.object(forKey: "Reader.textFontSize") as? Double ?? 18
     }
     private var lineSpacing: Double {
-        UserDefaults.standard.object(forKey: "Reader.textLineSpacing") as? Double ?? 6
+        UserDefaults.standard.object(forKey: "Reader.textLineSpacing") as? Double ?? 8
     }
 
     init(source: AidokuRunner.Source?, page: Page?) {
