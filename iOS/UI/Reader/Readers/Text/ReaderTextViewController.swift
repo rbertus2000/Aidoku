@@ -25,6 +25,8 @@ class ReaderTextViewController: BaseViewController {
     private var isSliding = false
     private var estimatedPageCount = 1
     private var pendingScrollRestore = false
+    private var isReportingProgress = false
+    private var lastReportedPage = 0
 
     // MARK: - Scroll Position Persistence
 
@@ -173,36 +175,6 @@ class ReaderTextViewController: BaseViewController {
         super.viewDidLayoutSubviews()
 
         hostingController?.view.invalidateIntrinsicContentSize()
-        updateEstimatedPages()
-    }
-
-    private var isUpdatingPages = false
-
-    /// Recalculate estimated page count based on content vs screen height
-    /// and report placeholder pages to the toolbar.
-    private func updateEstimatedPages() {
-        guard !isUpdatingPages else { return }
-
-        let contentHeight = scrollView.contentSize.height
-        let screenHeight = scrollView.frame.size.height
-        guard contentHeight > 0, screenHeight > 0 else { return }
-
-        let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
-        guard newCount != estimatedPageCount else { return }
-        estimatedPageCount = newCount
-
-        // Build placeholder pages so the toolbar knows the total
-        isUpdatingPages = true
-        let sourceId = viewModel.source?.key ?? viewModel.manga.sourceKey
-        let chapterId = chapter?.key ?? ""
-        let placeholderPages: [Page] = (0..<estimatedPageCount).map { index in
-            var page = Page(sourceId: sourceId, chapterId: chapterId)
-            page.index = index
-            page.text = "page"
-            return page
-        }
-        delegate?.setPages(placeholderPages)
-        isUpdatingPages = false
     }
 
     private func updateFooter() {
@@ -283,6 +255,13 @@ class ReaderTextViewController: BaseViewController {
 
             // Force scroll view to recalculate content size
             view.layoutIfNeeded()
+
+            // Calculate estimated pages after layout
+            let screenHeight = scrollView.frame.size.height
+            let contentHeight = scrollView.contentSize.height
+            if screenHeight > 0, contentHeight > 0 {
+                estimatedPageCount = max(1, Int(ceil(contentHeight / screenHeight)))
+            }
 
             // Restore saved scroll position or scroll to top
             if restorePosition, let savedProgress = loadScrollProgress(for: chapter.key) {
@@ -381,14 +360,13 @@ extension ReaderTextViewController: ReaderReaderDelegate {
 // MARK: - Scroll View Delegate
 extension ReaderTextViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSliding, !pendingScrollRestore, !isUpdatingPages else { return }
+        guard !isSliding, !pendingScrollRestore, !isReportingProgress else { return }
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
         guard totalHeight > 0 else { return }
 
         let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
 
-        // Only update delegate when progress changed meaningfully (avoid feedback loops)
         let currentPage: Int
         let screenHeight = scrollView.frame.size.height
         if screenHeight > 0 {
@@ -397,8 +375,14 @@ extension ReaderTextViewController: UIScrollViewDelegate {
             currentPage = 1
         }
 
-        delegate?.displayPage(currentPage)
+        // Only update delegate when page actually changed
+        isReportingProgress = true
+        if currentPage != lastReportedPage {
+            lastReportedPage = currentPage
+            delegate?.displayPage(currentPage)
+        }
         delegate?.setSliderOffset(progress)
+        isReportingProgress = false
 
         // Save scroll progress periodically
         saveScrollProgress(progress)
