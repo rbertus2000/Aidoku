@@ -381,21 +381,24 @@ extension ReaderTextViewController: ReaderReaderDelegate {
 // MARK: - Scroll View Delegate
 extension ReaderTextViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSliding, !pendingScrollRestore else { return }
+        guard !isSliding, !pendingScrollRestore, !isUpdatingPages else { return }
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
         guard totalHeight > 0 else { return }
 
         let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
-        delegate?.setSliderOffset(progress)
 
-        // Estimate page count based on content height vs screen height
+        // Only update delegate when progress changed meaningfully (avoid feedback loops)
+        let currentPage: Int
         let screenHeight = scrollView.frame.size.height
         if screenHeight > 0 {
-            estimatedPageCount = max(1, Int(ceil(scrollView.contentSize.height / screenHeight)))
-            let currentPage = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
-            delegate?.setCurrentPage(currentPage)
+            currentPage = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
+        } else {
+            currentPage = 1
         }
+
+        delegate?.displayPage(currentPage)
+        delegate?.setSliderOffset(progress)
 
         // Save scroll progress periodically
         saveScrollProgress(progress)
@@ -403,6 +406,7 @@ extension ReaderTextViewController: UIScrollViewDelegate {
         // Mark as completed when reaching the end (within 50pt of bottom)
         if scrollView.contentOffset.y >= totalHeight - 50 && !hasReachedEnd {
             hasReachedEnd = true
+            delegate?.setCurrentPage(currentPage)
             delegate?.setCompleted()
         }
     }
