@@ -173,6 +173,30 @@ class ReaderTextViewController: BaseViewController {
         super.viewDidLayoutSubviews()
 
         hostingController?.view.invalidateIntrinsicContentSize()
+        updateEstimatedPages()
+    }
+
+    /// Recalculate estimated page count based on content vs screen height
+    /// and report placeholder pages to the toolbar.
+    private func updateEstimatedPages() {
+        let contentHeight = scrollView.contentSize.height
+        let screenHeight = scrollView.frame.size.height
+        guard contentHeight > 0, screenHeight > 0 else { return }
+
+        let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
+        guard newCount != estimatedPageCount else { return }
+        estimatedPageCount = newCount
+
+        // Build placeholder pages so the toolbar knows the total
+        let sourceId = viewModel.source?.key ?? viewModel.manga.sourceKey
+        let chapterId = chapter?.key ?? ""
+        let placeholderPages: [Page] = (0..<estimatedPageCount).map { index in
+            var page = Page(sourceId: sourceId, chapterId: chapterId)
+            page.index = index
+            page.text = "page"
+            return page
+        }
+        delegate?.setPages(placeholderPages)
     }
 
     private func updateFooter() {
@@ -264,6 +288,9 @@ class ReaderTextViewController: BaseViewController {
                     if totalHeight > 0 {
                         let targetOffset = totalHeight * savedProgress
                         self.scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
+                        self.delegate?.setSliderOffset(savedProgress)
+                        let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
+                        self.delegate?.setCurrentPage(currentPage)
                     }
                     self.pendingScrollRestore = false
                 }
