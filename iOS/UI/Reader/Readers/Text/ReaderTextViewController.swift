@@ -282,8 +282,21 @@ class ReaderTextViewController: BaseViewController {
                 // Defer scroll restore until content is fully laid out
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    let totalHeight = self.scrollView.contentSize.height - self.scrollView.frame.size.height
+                    let contentHeight = self.scrollView.contentSize.height
+                    let screenHeight = self.scrollView.frame.size.height
+                    let totalHeight = contentHeight - screenHeight
                     if totalHeight > 0 {
+                        // Calculate page count now (before restore) so toolbar is correct
+                        if screenHeight > 0 {
+                            let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
+                            if newCount != self.estimatedPageCount, let firstPage = self.viewModel.pages.first {
+                                self.estimatedPageCount = newCount
+                                self.needsPageCountUpdate = false
+                                let virtualPages = Array(repeating: firstPage, count: newCount)
+                                self.delegate?.setPages(virtualPages)
+                            }
+                        }
+
                         let targetOffset = totalHeight * savedProgress
                         self.scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
                         let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
