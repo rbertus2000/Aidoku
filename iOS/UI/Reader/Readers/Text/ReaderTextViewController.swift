@@ -23,10 +23,6 @@ class ReaderTextViewController: BaseViewController {
 
     private var isSliding = false
 
-    // Virtual pages for slider/page display
-    private var virtualPageCount = 1
-    private var hasCalculatedVirtualPages = false
-
     private lazy var scrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.backgroundColor = .systemBackground
@@ -160,36 +156,6 @@ class ReaderTextViewController: BaseViewController {
         super.viewDidLayoutSubviews()
 
         hostingController?.view.invalidateIntrinsicContentSize()
-
-        // Calculate virtual pages once content size is known
-        updateVirtualPageCount()
-    }
-
-    private func updateVirtualPageCount() {
-        let contentHeight = scrollView.contentSize.height
-        let viewportHeight = scrollView.frame.height
-        guard contentHeight > 0 && viewportHeight > 0 else { return }
-
-        let newCount = max(1, Int(ceil(contentHeight / viewportHeight)))
-        if newCount != virtualPageCount {
-            virtualPageCount = newCount
-            // Build virtual page array and report to delegate
-            let virtualPages = (0..<virtualPageCount).map { _ in
-                viewModel.pages.first ?? Page()
-            }
-            delegate?.setPages(virtualPages)
-        }
-    }
-
-    private func currentVirtualPage() -> Int {
-        let contentHeight = scrollView.contentSize.height
-        let viewportHeight = scrollView.frame.height
-        let maxOffset = contentHeight - viewportHeight
-        guard maxOffset > 0 && viewportHeight > 0 else { return 1 }
-
-        let progress = scrollView.contentOffset.y / maxOffset
-        let page = Int(progress * CGFloat(virtualPageCount - 1)) + 1
-        return max(1, min(page, virtualPageCount))
     }
 
     private func updateFooter() {
@@ -235,8 +201,6 @@ class ReaderTextViewController: BaseViewController {
     private func loadChapter(_ chapter: AidokuRunner.Chapter) async {
         isLoadingChapter = true
         hasReachedEnd = false
-        hasCalculatedVirtualPages = false
-        virtualPageCount = 1
 
         await viewModel.loadPages(chapter: chapter)
         delegate?.setPages(viewModel.pages)
@@ -328,27 +292,16 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         isSliding = true
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
-        guard totalHeight > 0 else { return }
-
-        // value is page-based (0...1 mapped from page slider)
         let offset = totalHeight * value
 
         scrollView.setContentOffset(
             CGPoint(x: scrollView.contentOffset.x, y: offset),
             animated: false
         )
-
-        // Show current page while sliding
-        let page = max(1, min(Int(value * CGFloat(virtualPageCount - 1)) + 1, virtualPageCount))
-        delegate?.displayPage(page)
     }
 
     func sliderStopped(value: CGFloat) {
         isSliding = false
-
-        // Set actual current page
-        let page = currentVirtualPage()
-        delegate?.setCurrentPage(page)
     }
 
     func setChapter(_ chapter: AidokuRunner.Chapter, startPage: Int) {
@@ -368,9 +321,8 @@ extension ReaderTextViewController: UIScrollViewDelegate {
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
         guard totalHeight > 0 else { return }
 
-        // Update current virtual page
-        let page = currentVirtualPage()
-        delegate?.setCurrentPage(page)
+        let offset = min(1, max(0, scrollView.contentOffset.y / totalHeight))
+        delegate?.setSliderOffset(offset)
 
         // Mark as completed when reaching the end (within 50pt of bottom)
         if scrollView.contentOffset.y >= totalHeight - 50 && !hasReachedEnd {
