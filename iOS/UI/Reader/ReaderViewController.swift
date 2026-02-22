@@ -347,7 +347,7 @@ class ReaderViewController: BaseObservingViewController {
     ) async {
         let effectiveTotalPages = totalPages ?? toolbarView.totalPages ?? 0
         let effectiveCurrentPage = currentPage ?? self.currentPage
-        
+
         guard
             !UserDefaults.standard.bool(forKey: "General.incognitoMode"),
             effectiveTotalPages > 0 // ensure chapter pages are loaded
@@ -572,7 +572,7 @@ extension ReaderViewController {
             case .text:
                 // Text always reads left-to-right, regardless of manga setting
                 toolbarView.sliderView.direction = .forward
-                
+
                 // Check user preference for text reader style
                 let textReaderStyle = UserDefaults.standard.string(forKey: "Reader.textReaderStyle") ?? "paged"
                 if textReaderStyle == "paged" {
@@ -750,7 +750,7 @@ extension ReaderViewController: ReaderHoldingDelegate {
     }
 
     func setPages(_ pages: [Page]) {
-        
+
         // If already in a text reader with text pages, just update toolbar - don't trigger any switches
         if (reader is ReaderPagedTextViewController || reader is ReaderTextViewController)
             && pages.allSatisfy({ $0.isTextPage }) && pages.count > 1 {
