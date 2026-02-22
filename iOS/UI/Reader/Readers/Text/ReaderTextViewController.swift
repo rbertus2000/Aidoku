@@ -184,12 +184,10 @@ class ReaderTextViewController: BaseViewController {
             if contentHeight > screenHeight, screenHeight > 0 {
                 needsPageCountUpdate = false
                 let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
-                if newCount != estimatedPageCount {
+                if newCount != estimatedPageCount, let firstPage = viewModel.pages.first {
                     estimatedPageCount = newCount
                     // Report virtual page count to toolbar
-                    let virtualPages = (0..<estimatedPageCount).map { _ in
-                        viewModel.pages.first ?? Page()
-                    }
+                    let virtualPages = Array(repeating: firstPage, count: estimatedPageCount)
                     delegate?.setPages(virtualPages)
                 }
             }
