@@ -183,7 +183,15 @@ class ReaderTextViewController: BaseViewController {
             let screenHeight = scrollView.frame.size.height
             if contentHeight > screenHeight, screenHeight > 0 {
                 needsPageCountUpdate = false
-                estimatedPageCount = max(1, Int(ceil(contentHeight / screenHeight)))
+                let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
+                if newCount != estimatedPageCount {
+                    estimatedPageCount = newCount
+                    // Report virtual page count to toolbar
+                    let virtualPages = (0..<estimatedPageCount).map { _ in
+                        viewModel.pages.first ?? Page()
+                    }
+                    delegate?.setPages(virtualPages)
+                }
             }
         }
     }
@@ -280,8 +288,8 @@ class ReaderTextViewController: BaseViewController {
                     if totalHeight > 0 {
                         let targetOffset = totalHeight * savedProgress
                         self.scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
-                        self.delegate?.setSliderOffset(savedProgress)
                         let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
+                        self.lastReportedPage = currentPage
                         self.delegate?.setCurrentPage(currentPage)
                     }
                     self.pendingScrollRestore = false
@@ -343,16 +351,28 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         isSliding = true
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
+        guard totalHeight > 0 else { return }
         let offset = totalHeight * value
 
         scrollView.setContentOffset(
             CGPoint(x: scrollView.contentOffset.x, y: offset),
             animated: false
         )
+
+        // Show current page while sliding
+        let page = max(1, min(Int(value * CGFloat(estimatedPageCount - 1)) + 1, estimatedPageCount))
+        delegate?.displayPage(page)
     }
 
     func sliderStopped(value: CGFloat) {
         isSliding = false
+
+        // Commit current page
+        let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
+        guard totalHeight > 0 else { return }
+        let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
+        let page = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
+        delegate?.setCurrentPage(page)
     }
 
     func setChapter(_ chapter: AidokuRunner.Chapter, startPage: Int) {
@@ -386,9 +406,8 @@ extension ReaderTextViewController: UIScrollViewDelegate {
         isReportingProgress = true
         if currentPage != lastReportedPage {
             lastReportedPage = currentPage
-            delegate?.displayPage(currentPage)
+            delegate?.setCurrentPage(currentPage)
         }
-        delegate?.setSliderOffset(progress)
         isReportingProgress = false
 
         // Save scroll progress periodically
