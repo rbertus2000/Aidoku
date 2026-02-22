@@ -751,8 +751,9 @@ extension ReaderViewController: ReaderHoldingDelegate {
 
     func setPages(_ pages: [Page]) {
         
-        // If already in paginated text reader with text pages, just update toolbar - don't trigger any switches
-        if reader is ReaderPagedTextViewController && pages.allSatisfy({ $0.isTextPage }) && pages.count > 1 {
+        // If already in a text reader with text pages, just update toolbar - don't trigger any switches
+        if (reader is ReaderPagedTextViewController || reader is ReaderTextViewController)
+            && pages.allSatisfy({ $0.isTextPage }) && pages.count > 1 {
             self.pages = pages
             toolbarView.totalPages = pages.count
             activityIndicator.stopAnimating()
