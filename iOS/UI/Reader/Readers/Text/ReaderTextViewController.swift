@@ -31,15 +31,16 @@ class ReaderTextViewController: BaseViewController {
 
     // MARK: - Scroll Position Persistence
 
-    /// Save scroll progress (0.0–1.0) for the current chapter.
-    private func saveScrollProgress(_ progress: CGFloat) {
+    /// Save reading progress (0.0–1.0) for the current chapter.
+    /// Uses a shared key so both scroll and paged readers stay in sync.
+    private func saveReadingProgress(_ progress: CGFloat) {
         guard let chapterKey = chapter?.key else { return }
-        UserDefaults.standard.set(Double(progress), forKey: "TextReader.scrollProgress.\(chapterKey)")
+        UserDefaults.standard.set(Double(progress), forKey: "TextReader.progress.\(chapterKey)")
     }
 
-    /// Load previously saved scroll progress for a chapter. Returns nil if none stored.
-    private func loadScrollProgress(for chapterKey: String) -> CGFloat? {
-        let value = UserDefaults.standard.object(forKey: "TextReader.scrollProgress.\(chapterKey)")
+    /// Load previously saved reading progress for a chapter. Returns nil if none stored.
+    private func loadReadingProgress(for chapterKey: String) -> CGFloat? {
+        let value = UserDefaults.standard.object(forKey: "TextReader.progress.\(chapterKey)")
         return (value as? Double).map { CGFloat($0) }
     }
 
@@ -277,7 +278,7 @@ class ReaderTextViewController: BaseViewController {
             needsPageCountUpdate = true
 
             // Restore saved scroll position or scroll to top
-            if restorePosition, let savedProgress = loadScrollProgress(for: chapter.key) {
+            if restorePosition, let savedProgress = loadReadingProgress(for: chapter.key) {
                 pendingScrollRestore = true
                 // Defer scroll restore until content is fully laid out
                 DispatchQueue.main.async { [weak self] in
@@ -422,7 +423,7 @@ extension ReaderTextViewController: UIScrollViewDelegate {
         isReportingProgress = false
 
         // Save scroll progress periodically
-        saveScrollProgress(progress)
+        saveReadingProgress(progress)
 
         // Mark as completed when reaching the end (within 50pt of bottom)
         if scrollView.contentOffset.y >= totalHeight - 50 && !hasReachedEnd {

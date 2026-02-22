@@ -56,6 +56,12 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     private func saveCharacterOffset() {
         guard let chapterKey = chapter?.key else { return }
         UserDefaults.standard.set(currentCharacterOffset, forKey: "TextReader.offset.\(chapterKey)")
+
+        // Also save normalized progress (0.0–1.0) so scroll reader can restore position
+        let totalPages = max(1, pages.count)
+        let currentIndex = pages.lastIndex(where: { $0.range.location <= currentCharacterOffset }) ?? 0
+        let progress = Double(currentIndex) / Double(max(1, totalPages - 1))
+        UserDefaults.standard.set(progress, forKey: "TextReader.progress.\(chapterKey)")
     }
 
     /// Load a previously saved character offset for a chapter. Returns nil if none stored.
@@ -274,6 +280,12 @@ class ReaderPagedTextViewController: BaseObservingViewController {
                let storedOffset = loadCharacterOffset(for: chapterKey) {
                 currentCharacterOffset = storedOffset
                 targetIndex = pages.lastIndex(where: { $0.range.location <= storedOffset }) ?? 0
+            } else if let chapterKey = chapter?.key,
+                      let progress = UserDefaults.standard.object(forKey: "TextReader.progress.\(chapterKey)") as? Double {
+                // Fall back to shared progress (e.g. from scroll reader)
+                let idx = Int(progress * Double(max(1, pages.count - 1)))
+                targetIndex = min(max(0, idx), pages.count - 1)
+                currentCharacterOffset = pages[targetIndex].range.location
             } else if pending > 0 {
                 // Fall back to page number from History (first open, no stored offset)
                 targetIndex = min(pending - 1, pages.count - 1)
