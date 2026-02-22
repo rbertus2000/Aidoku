@@ -60,7 +60,7 @@ class ReaderTextViewController: BaseViewController {
         return sv
     }()
 
-    private var hostingController: UIHostingController<ReaderTextView>?
+    private var hostingControllers: [UIHostingController<ReaderTextView>] = []
 
     private func createHostingController(page: Page?) -> UIHostingController<ReaderTextView> {
         let hc = HostingController(
@@ -120,14 +120,24 @@ class ReaderTextViewController: BaseViewController {
     }
 
     override func configure() {
-        // Create initial hosting controller
-        let hc = createHostingController(page: viewModel.pages.first)
-        hostingController = hc
-        addChild(hc)
-        hc.didMove(toParent: self)
+        // Create hosting controllers for all pages
+        for page in viewModel.pages {
+            let hc = createHostingController(page: page)
+            addChild(hc)
+            hc.didMove(toParent: self)
+            hostingControllers.append(hc)
+            contentStackView.addArrangedSubview(hc.view)
+        }
 
-        // Build content stack
-        contentStackView.addArrangedSubview(hc.view)
+        // If no pages, add a placeholder for the first page
+        if hostingControllers.isEmpty {
+            let hc = createHostingController(page: viewModel.pages.first)
+            addChild(hc)
+            hc.didMove(toParent: self)
+            hostingControllers.append(hc)
+            contentStackView.addArrangedSubview(hc.view)
+        }
+
         contentStackView.addArrangedSubview(footerView)
 
         // Footer content
@@ -146,7 +156,9 @@ class ReaderTextViewController: BaseViewController {
     override func constrain() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         contentStackView.translatesAutoresizingMaskIntoConstraints = false
-        hostingController?.view.translatesAutoresizingMaskIntoConstraints = false
+        for hc in hostingControllers {
+            hc.view.translatesAutoresizingMaskIntoConstraints = false
+        }
         footerView.translatesAutoresizingMaskIntoConstraints = false
         footerStackView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -176,7 +188,9 @@ class ReaderTextViewController: BaseViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        hostingController?.view.invalidateIntrinsicContentSize()
+        for hc in hostingControllers {
+            hc.view.invalidateIntrinsicContentSize()
+        }
 
         // One-shot page count update after content is laid out
         if needsPageCountUpdate {
@@ -247,25 +261,21 @@ class ReaderTextViewController: BaseViewController {
             previousChapter = delegate?.getPreviousChapter()
             nextChapter = delegate?.getNextChapter()
 
-            // Update text - recreate hosting controller to force full refresh
-            if let firstPage = viewModel.pages.first {
-                // Remove old view
-                hostingController?.view.removeFromSuperview()
-                hostingController?.removeFromParent()
+            // Remove old hosting controllers
+            for hc in self.hostingControllers {
+                hc.view.removeFromSuperview()
+                hc.removeFromParent()
+            }
+            self.hostingControllers.removeAll()
 
-                // Create new hosting controller with new content
-                let newHostingController = createHostingController(page: firstPage)
-
-                // Add to view hierarchy
-                addChild(newHostingController)
-                newHostingController.didMove(toParent: self)
-
-                // Insert at the beginning of the stack view
-                contentStackView.insertArrangedSubview(newHostingController.view, at: 0)
-                newHostingController.view.translatesAutoresizingMaskIntoConstraints = false
-
-                // Update reference
-                hostingController = newHostingController
+            // Create new hosting controllers for all pages
+            for (index, page) in self.viewModel.pages.enumerated() {
+                let hc = self.createHostingController(page: page)
+                self.addChild(hc)
+                hc.didMove(toParent: self)
+                self.contentStackView.insertArrangedSubview(hc.view, at: index)
+                hc.view.translatesAutoresizingMaskIntoConstraints = false
+                self.hostingControllers.append(hc)
             }
 
             // Update footer
