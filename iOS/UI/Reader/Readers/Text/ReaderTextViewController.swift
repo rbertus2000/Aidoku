@@ -291,30 +291,30 @@ class ReaderTextViewController: BaseViewController {
             if restorePosition, let savedProgress = loadReadingProgress(for: chapter.key) {
                 pendingScrollRestore = true
                 // Defer scroll restore until content is fully laid out
-                DispatchQueue.main.async { [weak self] in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
-                    let contentHeight = self.scrollView.contentSize.height
-                    let screenHeight = self.scrollView.frame.size.height
+                    let contentHeight = scrollView.contentSize.height
+                    let screenHeight = scrollView.frame.size.height
                     let totalHeight = contentHeight - screenHeight
                     if totalHeight > 0 {
                         // Calculate page count now (before restore) so toolbar is correct
                         if screenHeight > 0 {
                             let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
-                            if newCount != self.estimatedPageCount, let firstPage = self.viewModel.pages.first {
-                                self.estimatedPageCount = newCount
-                                self.needsPageCountUpdate = false
+                            if newCount != estimatedPageCount, let firstPage = viewModel.pages.first {
+                                estimatedPageCount = newCount
+                                needsPageCountUpdate = false
                                 let virtualPages = Array(repeating: firstPage, count: newCount)
-                                self.delegate?.setPages(virtualPages)
+                                delegate?.setPages(virtualPages)
                             }
                         }
 
                         let targetOffset = totalHeight * savedProgress
-                        self.scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
-                        let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
-                        self.lastReportedPage = currentPage
-                        self.delegate?.setCurrentPage(currentPage)
+                        scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
+                        let currentPage = min(estimatedPageCount, Int(savedProgress * CGFloat(estimatedPageCount)) + 1)
+                        lastReportedPage = currentPage
+                        delegate?.setCurrentPage(currentPage)
                     }
-                    self.pendingScrollRestore = false
+                    pendingScrollRestore = false
                 }
             } else {
                 scrollView.setContentOffset(.init(x: 0, y: 0), animated: false)
