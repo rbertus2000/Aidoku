@@ -15,24 +15,103 @@ class ReaderTextViewController: BaseViewController {
     var readingMode: ReadingMode = .rtl
     var delegate: (any ReaderHoldingDelegate)?
 
+    // Chapter navigation
+    private var chapter: AidokuRunner.Chapter?
+    private var previousChapter: AidokuRunner.Chapter?
+    private var nextChapter: AidokuRunner.Chapter?
+    private var isLoadingChapter = false
+    private var hasReachedEnd = false
+
     private var isSliding = false
+    private var estimatedPageCount = 1
+    private var pendingScrollRestore = false
+    private var isReportingProgress = false
+    private var lastReportedPage = 0
+    private var needsPageCountUpdate = false
+
+    // MARK: - Scroll Position Persistence
+
+    /// Save reading progress (0.0–1.0) for the current chapter.
+    /// Uses a shared key so both scroll and paged readers stay in sync.
+    private func saveReadingProgress(_ progress: CGFloat) {
+        guard let chapterKey = chapter?.key else { return }
+        UserDefaults.standard.set(Double(progress), forKey: "TextReader.progress.\(chapterKey)")
+    }
+
+    /// Load previously saved reading progress for a chapter. Returns nil if none stored.
+    private func loadReadingProgress(for chapterKey: String) -> CGFloat? {
+        let value = UserDefaults.standard.object(forKey: "TextReader.progress.\(chapterKey)")
+        return (value as? Double).map { CGFloat($0) }
+    }
 
     private lazy var scrollView: UIScrollView = {
         let scrollView = UIScrollView()
         scrollView.backgroundColor = .systemBackground
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.delegate = self
+        scrollView.alwaysBounceVertical = true
         return scrollView
     }()
-    private lazy var hostingController: UIHostingController<ReaderTextView> = {
-        let hostingController = HostingController(
-            rootView: ReaderTextView(source: viewModel.source, page: viewModel.pages.first)
+
+    private lazy var contentStackView: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.spacing = 0
+        return sv
+    }()
+
+    private var hostingControllers: [UIHostingController<ReaderTextView>] = []
+
+    private func createHostingController(page: Page?) -> UIHostingController<ReaderTextView> {
+        let hc = HostingController(
+            rootView: ReaderTextView(source: viewModel.source, page: page)
         )
         if #available(iOS 16.0, *) {
-            hostingController.sizingOptions = .intrinsicContentSize
+            hc.sizingOptions = .intrinsicContentSize
         }
-        hostingController.view.backgroundColor = .clear
-        return hostingController
+        hc.view.backgroundColor = .clear
+        return hc
+    }
+
+    // Footer view for chapter navigation
+    private lazy var footerView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .systemBackground
+        return view
+    }()
+
+    private lazy var footerStackView: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.alignment = .center
+        sv.spacing = 16
+        return sv
+    }()
+
+    private lazy var footerTitleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .secondaryLabel
+        label.textAlignment = .center
+        return label
+    }()
+
+    private lazy var footerChapterLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 20, weight: .semibold)
+        label.textColor = .label
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        return label
+    }()
+
+    private lazy var nextChapterButton: UIButton = {
+        var config = UIButton.Configuration.filled()
+        config.title = NSLocalizedString("CONTINUE_READING")
+        config.cornerStyle = .medium
+        let button = UIButton(configuration: config)
+        button.addTarget(self, action: #selector(nextChapterTapped), for: .touchUpInside)
+        return button
     }()
 
     init(source: AidokuRunner.Source?, manga: AidokuRunner.Manga) {
@@ -41,16 +120,47 @@ class ReaderTextViewController: BaseViewController {
     }
 
     override func configure() {
-        addChild(hostingController)
-        hostingController.didMove(toParent: self)
-        scrollView.addSubview(hostingController.view)
+        // Create hosting controllers for all pages
+        for page in viewModel.pages {
+            let hc = createHostingController(page: page)
+            addChild(hc)
+            hc.didMove(toParent: self)
+            hostingControllers.append(hc)
+            contentStackView.addArrangedSubview(hc.view)
+        }
 
+        // If no pages, add a placeholder for the first page
+        if hostingControllers.isEmpty {
+            let hc = createHostingController(page: viewModel.pages.first)
+            addChild(hc)
+            hc.didMove(toParent: self)
+            hostingControllers.append(hc)
+            contentStackView.addArrangedSubview(hc.view)
+        }
+
+        contentStackView.addArrangedSubview(footerView)
+
+        // Footer content
+        footerView.addSubview(footerStackView)
+        footerStackView.addArrangedSubview(footerTitleLabel)
+        footerStackView.addArrangedSubview(footerChapterLabel)
+        footerStackView.addArrangedSubview(nextChapterButton)
+
+        scrollView.addSubview(contentStackView)
         view.addSubview(scrollView)
+
+        // Initially hide footer
+        footerView.isHidden = true
     }
 
     override func constrain() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        contentStackView.translatesAutoresizingMaskIntoConstraints = false
+        for hc in hostingControllers {
+            hc.view.translatesAutoresizingMaskIntoConstraints = false
+        }
+        footerView.translatesAutoresizingMaskIntoConstraints = false
+        footerStackView.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -58,32 +168,172 @@ class ReaderTextViewController: BaseViewController {
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-//            hostingController.view.topAnchor.constraint(equalTo: scrollView.topAnchor),
-//            hostingController.view.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
-//            hostingController.view.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
-//            hostingController.view.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor)
-
-            hostingController.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            hostingController.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            contentStackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            contentStackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            contentStackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            contentStackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
 
             // Fix the width to prevent horizontal scrolling
-            hostingController.view.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor)
+            contentStackView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+
+            // Footer layout
+            footerView.heightAnchor.constraint(equalToConstant: 200),
+            footerStackView.centerXAnchor.constraint(equalTo: footerView.centerXAnchor),
+            footerStackView.centerYAnchor.constraint(equalTo: footerView.centerYAnchor),
+            footerStackView.leadingAnchor.constraint(greaterThanOrEqualTo: footerView.leadingAnchor, constant: 32),
+            footerStackView.trailingAnchor.constraint(lessThanOrEqualTo: footerView.trailingAnchor, constant: -32)
         ])
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        hostingController.view.invalidateIntrinsicContentSize()
-        scrollView.contentSize = hostingController.view.intrinsicContentSize
+        for hc in hostingControllers {
+            hc.view.invalidateIntrinsicContentSize()
+        }
+
+        // One-shot page count update after content is laid out
+        if needsPageCountUpdate {
+            let contentHeight = scrollView.contentSize.height
+            let screenHeight = scrollView.frame.size.height
+            if contentHeight > screenHeight, screenHeight > 0 {
+                needsPageCountUpdate = false
+                let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
+                if newCount != estimatedPageCount, let firstPage = viewModel.pages.first {
+                    estimatedPageCount = newCount
+                    // Report virtual page count to toolbar
+                    let virtualPages = Array(repeating: firstPage, count: estimatedPageCount)
+                    delegate?.setPages(virtualPages)
+                }
+            }
+        }
+    }
+
+    private func updateFooter() {
+        if let nextChapter {
+            footerView.isHidden = false
+            footerTitleLabel.text = NSLocalizedString("NEXT_CHAPTER")
+
+            if let chapterNum = nextChapter.chapterNumber {
+                footerChapterLabel.text = String(format: NSLocalizedString("CHAPTER_X", comment: ""), chapterNum)
+            } else {
+                footerChapterLabel.text = nextChapter.title ?? ""
+            }
+
+            nextChapterButton.isHidden = false
+        } else {
+            footerView.isHidden = false
+            footerTitleLabel.text = NSLocalizedString("NO_NEXT_CHAPTER")
+            footerChapterLabel.text = NSLocalizedString("END_OF_MANGA")
+            nextChapterButton.isHidden = true
+        }
+    }
+
+    @objc private func nextChapterTapped() {
+        loadNextChapter()
+    }
+
+    func loadNextChapter() {
+        guard let nextChapter, !isLoadingChapter else { return }
+        delegate?.setChapter(nextChapter)
+        Task {
+            await loadChapter(nextChapter)
+        }
+    }
+
+    func loadPreviousChapter() {
+        guard let previousChapter, !isLoadingChapter else { return }
+        delegate?.setChapter(previousChapter)
+        Task {
+            await loadChapter(previousChapter)
+        }
+    }
+
+    private func loadChapter(_ chapter: AidokuRunner.Chapter, restorePosition: Bool = true) async {
+        isLoadingChapter = true
+        hasReachedEnd = false
+        self.chapter = chapter
+
+        await viewModel.loadPages(chapter: chapter)
+        delegate?.setPages(viewModel.pages)
+
+        await MainActor.run {
+            previousChapter = delegate?.getPreviousChapter()
+            nextChapter = delegate?.getNextChapter()
+
+            // Remove old hosting controllers
+            for hc in self.hostingControllers {
+                hc.view.removeFromSuperview()
+                hc.removeFromParent()
+            }
+            self.hostingControllers.removeAll()
+
+            // Create new hosting controllers for all pages
+            for (index, page) in self.viewModel.pages.enumerated() {
+                let hc = self.createHostingController(page: page)
+                self.addChild(hc)
+                hc.didMove(toParent: self)
+                self.contentStackView.insertArrangedSubview(hc.view, at: index)
+                hc.view.translatesAutoresizingMaskIntoConstraints = false
+                self.hostingControllers.append(hc)
+            }
+
+            // Update footer
+            updateFooter()
+
+            // Force scroll view to recalculate content size
+            view.layoutIfNeeded()
+
+            // Flag for page count calculation once content is laid out
+            needsPageCountUpdate = true
+
+            // Restore saved scroll position or scroll to top
+            if restorePosition, let savedProgress = loadReadingProgress(for: chapter.key) {
+                pendingScrollRestore = true
+                // Defer scroll restore until content is fully laid out
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let contentHeight = scrollView.contentSize.height
+                    let screenHeight = scrollView.frame.size.height
+                    let totalHeight = contentHeight - screenHeight
+                    if totalHeight > 0 {
+                        // Calculate page count now (before restore) so toolbar is correct
+                        if screenHeight > 0 {
+                            let newCount = max(1, Int(ceil(contentHeight / screenHeight)))
+                            if newCount != estimatedPageCount, let firstPage = viewModel.pages.first {
+                                estimatedPageCount = newCount
+                                needsPageCountUpdate = false
+                                let virtualPages = Array(repeating: firstPage, count: newCount)
+                                delegate?.setPages(virtualPages)
+                            }
+                        }
+
+                        let targetOffset = totalHeight * savedProgress
+                        scrollView.setContentOffset(CGPoint(x: 0, y: targetOffset), animated: false)
+                        let currentPage = min(estimatedPageCount, Int(savedProgress * CGFloat(estimatedPageCount)) + 1)
+                        lastReportedPage = currentPage
+                        delegate?.setCurrentPage(currentPage)
+                    }
+                    pendingScrollRestore = false
+                }
+            } else {
+                scrollView.setContentOffset(.init(x: 0, y: 0), animated: false)
+            }
+
+            isLoadingChapter = false
+        }
     }
 }
 
 // MARK: - Reader Delegate
 extension ReaderTextViewController: ReaderReaderDelegate {
     func moveLeft() {
+        // At the top? Try previous chapter
+        if scrollView.contentOffset.y <= 0 {
+            loadPreviousChapter()
+            return
+        }
+
         let offset = CGPoint(
             x: scrollView.contentOffset.x,
             y: max(
@@ -98,10 +348,18 @@ extension ReaderTextViewController: ReaderReaderDelegate {
     }
 
     func moveRight() {
+        let maxOffset = scrollView.contentSize.height - scrollView.bounds.height
+
+        // At the bottom? Try next chapter
+        if scrollView.contentOffset.y >= maxOffset - 10 {
+            loadNextChapter()
+            return
+        }
+
         let offset = CGPoint(
             x: scrollView.contentOffset.x,
             y: min(
-                scrollView.contentSize.height - scrollView.bounds.height,
+                maxOffset,
                 scrollView.contentOffset.y + scrollView.bounds.height * 2/3
             )
         )
@@ -115,32 +373,35 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         isSliding = true
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
+        guard totalHeight > 0 else { return }
         let offset = totalHeight * value
 
         scrollView.setContentOffset(
             CGPoint(x: scrollView.contentOffset.x, y: offset),
             animated: false
         )
+
+        // Show current page while sliding
+        let page = max(1, min(Int(value * CGFloat(estimatedPageCount - 1)) + 1, estimatedPageCount))
+        delegate?.displayPage(page)
     }
 
     func sliderStopped(value: CGFloat) {
         isSliding = false
+
+        // Commit current page
+        let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
+        guard totalHeight > 0 else { return }
+        let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
+        let page = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
+        delegate?.setCurrentPage(page)
     }
 
     func setChapter(_ chapter: AidokuRunner.Chapter, startPage: Int) {
         guard chapter != viewModel.chapter else { return }
 
         Task {
-            await viewModel.loadPages(chapter: chapter)
-            delegate?.setPages(viewModel.pages)
-
-            // update text
-            if let firstPage = viewModel.pages.first {
-                hostingController.rootView = ReaderTextView(source: viewModel.source, page: firstPage)
-            }
-
-            // scroll to top
-            scrollView.setContentOffset(.init(x: 0, y: 0), animated: false)
+            await loadChapter(chapter, restorePosition: startPage > 0)
         }
     }
 }
@@ -148,11 +409,38 @@ extension ReaderTextViewController: ReaderReaderDelegate {
 // MARK: - Scroll View Delegate
 extension ReaderTextViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSliding else { return }
+        guard !isSliding, !pendingScrollRestore, !isReportingProgress else { return }
 
         let totalHeight = scrollView.contentSize.height - scrollView.frame.size.height
-        let offset = min(1, max(0, scrollView.contentOffset.y / totalHeight))
-        delegate?.setSliderOffset(offset)
+        guard totalHeight > 0 else { return }
+
+        let progress = min(1, max(0, scrollView.contentOffset.y / totalHeight))
+
+        let currentPage: Int
+        let screenHeight = scrollView.frame.size.height
+        if screenHeight > 0 {
+            currentPage = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
+        } else {
+            currentPage = 1
+        }
+
+        // Only update delegate when page actually changed
+        isReportingProgress = true
+        if currentPage != lastReportedPage {
+            lastReportedPage = currentPage
+            delegate?.setCurrentPage(currentPage)
+        }
+        isReportingProgress = false
+
+        // Save scroll progress periodically
+        saveReadingProgress(progress)
+
+        // Mark as completed when reaching the end (within 50pt of bottom)
+        if scrollView.contentOffset.y >= totalHeight - 50 && !hasReachedEnd {
+            hasReachedEnd = true
+            delegate?.setCurrentPage(currentPage)
+            delegate?.setCompleted()
+        }
     }
 }
 
@@ -160,6 +448,16 @@ extension ReaderTextViewController: UIScrollViewDelegate {
 private struct ReaderTextView: View {
     let source: AidokuRunner.Source?
     let text: String?
+
+    private var fontFamily: String {
+        UserDefaults.standard.string(forKey: "Reader.textFontFamily") ?? "System"
+    }
+    private var fontSize: Double {
+        UserDefaults.standard.object(forKey: "Reader.textFontSize") as? Double ?? 18
+    }
+    private var lineSpacing: Double {
+        UserDefaults.standard.object(forKey: "Reader.textLineSpacing") as? Double ?? 8
+    }
 
     init(source: AidokuRunner.Source?, page: Page?) {
         self.source = source
@@ -197,7 +495,7 @@ private struct ReaderTextView: View {
 
     var body: some View {
         if let text {
-            MarkdownView(text)
+            MarkdownView(text, fontFamily: fontFamily, fontSize: fontSize, lineSpacing: lineSpacing)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
