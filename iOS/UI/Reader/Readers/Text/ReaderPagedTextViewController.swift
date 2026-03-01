@@ -41,6 +41,10 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     private var currentCharacterOffset = 0  // Character offset for position restoration after repagination
     private var isLoadingChapter = false  // Prevent race conditions
     private var lastPaginationSize: CGSize = .zero  // Track size to avoid repagination loops
+
+    /// Indicates whether pagination has been performed for the current chapter.
+    /// Used to distinguish between the pre-pagination placeholder and actual paginated content.
+    private(set) var hasPaginated = false
     /// Tracks the requested start page (from reading history) so `repaginate()` can
     /// restore the correct position after the initial pagination completes.
     private var pendingStartPage: Int?
@@ -250,6 +254,7 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         lastPaginationSize = view.bounds.size
 
         pages = paginator.paginate(markdown: text, pageSize: pageSize)
+        hasPaginated = true
 
         // Update toolbar with our paginated page count
         // ReaderViewController now knows to not switch away when we're already
@@ -271,9 +276,13 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         if let pending = pendingStartPage {
             pendingStartPage = nil  // Clear after using
 
-            // First try to restore from our stored character offset (survives font changes)
-            if let chapterKey = chapter?.key,
+            // If pending <= 0, this chapter is completed or has no history - start from beginning
+            if pending <= 0 {
+                targetIndex = 0
+                currentCharacterOffset = 0
+            } else if let chapterKey = chapter?.key,
                let storedOffset = loadCharacterOffset(for: chapterKey) {
+                // First try to restore from our stored character offset (survives font changes)
                 currentCharacterOffset = storedOffset
                 targetIndex = pages.lastIndex(where: { $0.range.location <= storedOffset }) ?? 0
             } else if let chapterKey = chapter?.key,
@@ -282,11 +291,10 @@ class ReaderPagedTextViewController: BaseObservingViewController {
                 let idx = Int(progress * Double(max(1, pages.count - 1)))
                 targetIndex = min(max(0, idx), pages.count - 1)
                 currentCharacterOffset = pages[targetIndex].range.location
-            } else if pending > 0 {
+            } else {
                 // Fall back to page number from History (first open, no stored offset)
                 targetIndex = min(pending - 1, pages.count - 1)
-            } else {
-                targetIndex = 0
+                currentCharacterOffset = pages[targetIndex].range.location
             }
         } else {
             // In-session repagination (font/size change) – use current character offset
@@ -414,6 +422,7 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     func loadChapter(_ chapter: AidokuRunner.Chapter, startPage: Int = 0) async {
 
         isLoadingChapter = true
+        hasPaginated = false
         self.chapter = chapter
 
         await viewModel.loadPages(chapter: chapter)
@@ -431,7 +440,8 @@ class ReaderPagedTextViewController: BaseObservingViewController {
             view.layoutIfNeeded()
 
             // Set pending start page before repaginate
-            pendingStartPage = startPage > 0 ? startPage : 1
+            // startPage <= 0 means no history exists - start from beginning
+            pendingStartPage = startPage
 
             repaginate()
 
@@ -506,8 +516,10 @@ extension ReaderPagedTextViewController: ReaderReaderDelegate {
         if !viewModel.pages.isEmpty {
             self.chapter = chapter
             isLoadingChapter = true
+            hasPaginated = false
             // Store the requested start page - repaginate will use this
-            pendingStartPage = startPage > 0 ? startPage : 1
+            // startPage <= 0 means no history exists - start from beginning
+            pendingStartPage = startPage
             view.layoutIfNeeded()
             repaginate()
             isLoadingChapter = false
@@ -549,8 +561,13 @@ extension ReaderPagedTextViewController: UIPageViewControllerDelegate {
             return
         }
 
-        // Don't update page position when showing chapter transition screen
-        // This prevents marking the wrong chapter as completed
+        // When user swipes past the transition page onto the trigger page, load the chapter
+        if let triggerVC = currentVC as? ChapterLoadTriggerViewController {
+            triggerVC.transitionVC.performTransition()
+            return
+        }
+
+        // Transition info page itself — just display, no auto-navigation
         if currentVC is ChapterTransitionViewController {
             return
         }
@@ -575,9 +592,15 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
         _ pageViewController: UIPageViewController,
         viewControllerAfter viewController: UIViewController
     ) -> UIViewController? {
-        // If we're showing a chapter transition, no more pages after
-        if viewController is ChapterTransitionViewController {
+        // Past the trigger page — nothing further
+        if viewController is ChapterLoadTriggerViewController {
             return nil
+        }
+
+        // The transition info page: allow one more swipe to trigger the chapter load
+        if let transitionVC = viewController as? ChapterTransitionViewController {
+            guard transitionVC.chapter != nil else { return nil }
+            return ChapterLoadTriggerViewController(transitionVC: transitionVC)
         }
 
         let currentIndex = getCurrentIndex(from: viewController)
@@ -593,10 +616,14 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
         if nextIndex >= 0 && nextIndex < pages.count {
             return createPageViewController(for: nextIndex)
         } else if nextIndex >= pages.count {
-            // Show chapter transition page
+            // Show chapter transition page (matching image reader style)
+            let sourceId = viewModel.source?.key ?? viewModel.manga.sourceKey
             return ChapterTransitionViewController(
                 direction: .next,
                 chapter: nextChapter,
+                currentChapter: chapter,
+                sourceId: sourceId,
+                mangaId: viewModel.manga.key,
                 parentReader: self
             )
         }
@@ -607,9 +634,15 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
         _ pageViewController: UIPageViewController,
         viewControllerBefore viewController: UIViewController
     ) -> UIViewController? {
-        // If we're showing a chapter transition, no more pages before
-        if viewController is ChapterTransitionViewController {
+        // Past the trigger page — nothing further
+        if viewController is ChapterLoadTriggerViewController {
             return nil
+        }
+
+        // The transition info page: allow one more swipe to trigger the chapter load
+        if let transitionVC = viewController as? ChapterTransitionViewController {
+            guard transitionVC.chapter != nil else { return nil }
+            return ChapterLoadTriggerViewController(transitionVC: transitionVC)
         }
 
         let currentIndex = getCurrentIndex(from: viewController)
@@ -625,10 +658,14 @@ extension ReaderPagedTextViewController: UIPageViewControllerDataSource {
         if prevIndex >= 0 && prevIndex < pages.count {
             return createPageViewController(for: prevIndex)
         } else if prevIndex < 0 {
-            // Show chapter transition page
+            // Show chapter transition page (matching image reader style)
+            let sourceId = viewModel.source?.key ?? viewModel.manga.sourceKey
             return ChapterTransitionViewController(
                 direction: .previous,
                 chapter: previousChapter,
+                currentChapter: chapter,
+                sourceId: sourceId,
+                mangaId: viewModel.manga.key,
                 parentReader: self
             )
         }

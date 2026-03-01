@@ -1,7 +1,6 @@
 //
 //  TextDoublePageViewController.swift
 //  Aidoku
-//
 
 import UIKit
 
@@ -31,12 +30,6 @@ class TextDoublePageViewController: UIViewController {
         v.backgroundColor = .separator
         return v
     }()
-
-    // Dynamic constraints for safe area
-    private var topConstraint: NSLayoutConstraint?
-    private var leadingConstraint: NSLayoutConstraint?
-    private var trailingConstraint: NSLayoutConstraint?
-    private var bottomConstraint: NSLayoutConstraint?
 
     init(leftPage: TextPage, rightPage: TextPage, direction: Direction, parentReader: ReaderPagedTextViewController? = nil) {
         self.leftPage = leftPage
@@ -73,30 +66,17 @@ class TextDoublePageViewController: UIViewController {
             rightTextView.attributedText = rightPage.attributedContent
         }
 
-        // Create dynamic constraints
-        topConstraint = stackView.topAnchor.constraint(equalTo: view.topAnchor)
-        leadingConstraint = stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-        trailingConstraint = stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-        bottomConstraint = stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-
+        // Use safe area for proper positioning
         NSLayoutConstraint.activate([
-            topConstraint!, leadingConstraint!, trailingConstraint!, bottomConstraint!,
+            stackView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            stackView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            stackView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             dividerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             dividerView.topAnchor.constraint(equalTo: stackView.topAnchor, constant: 20),
             dividerView.bottomAnchor.constraint(equalTo: stackView.bottomAnchor, constant: -20),
             dividerView.widthAnchor.constraint(equalToConstant: 1)
         ])
-    }
-
-    override func viewWillLayoutSubviews() {
-        super.viewWillLayoutSubviews()
-
-        let safeArea = parentReader?.view.safeAreaInsets ?? view.safeAreaInsets
-
-        topConstraint?.constant = safeArea.top
-        leadingConstraint?.constant = safeArea.left
-        trailingConstraint?.constant = -safeArea.right
-        bottomConstraint?.constant = -safeArea.bottom
     }
 
     private func createTextView() -> UITextView {

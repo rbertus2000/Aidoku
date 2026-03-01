@@ -304,6 +304,7 @@ struct ReaderSettingsView: View {
                         setting: .init(
                             key: "Reader.textReaderStyle",
                             title: NSLocalizedString("TEXT_READER_STYLE"),
+                            notification: .init("Reader.textReaderStyle"),
                             value: .select(.init(
                                 values: ["paged", "scroll"],
                                 titles: [

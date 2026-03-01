@@ -241,6 +241,16 @@ class ReaderViewController: BaseObservingViewController {
         addObserver(forName: "Reader.cropBorders", using: reloadBlock)
         addObserver(forName: "Reader.liveText", using: reloadBlock)
         addObserver(forName: "Reader.tapZones", using: reloadBlock)
+        // Switch text reader style (paged <-> scroll) without restart
+        addObserver(forName: "Reader.textReaderStyle") { [weak self] _ in
+            guard let self else { return }
+            // Only switch if we're currently in a text reader
+            if self.reader is ReaderTextViewController || self.reader is ReaderPagedTextViewController {
+                self.setReader(.text)
+                self.reader?.setChapter(self.chapter, startPage: self.currentPage)
+                self.updateTapZone()
+            }
+        }
         addObserver(forName: UIScene.willDeactivateNotification) { [weak self] _ in
             guard let self else { return }
             Task {
@@ -721,11 +731,15 @@ extension ReaderViewController: ReaderHoldingDelegate {
         currentPage = page
         toolbarView.currentPage = page
         toolbarView.updateSliderPosition()
-        // Don't mark as completed if this is a single text page (pre-pagination placeholder)
-        let isSingleTextPage = totalPages == 1 && self.pages.first?.isTextPage == true
-        if pages.upperBound >= totalPages && !isSingleTextPage {
+        // Mark as completed when reaching the last page
+        // Exception: Don't mark for the pre-pagination placeholder (single text page before
+        // ReaderPagedTextViewController has paginated it). Once paginated, even single-page
+        // chapters should be marked as read.
+        let isPrePaginationPlaceholder = totalPages == 1
+            && self.pages.first?.isTextPage == true
+            && !(reader is ReaderPagedTextViewController && (reader as? ReaderPagedTextViewController)?.hasPaginated == true)
+        if pages.upperBound >= totalPages && !isPrePaginationPlaceholder {
             setCompleted()
-        } else if isSingleTextPage {
         }
     }
 

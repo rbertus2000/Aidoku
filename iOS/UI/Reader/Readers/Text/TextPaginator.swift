@@ -94,26 +94,151 @@ class TextPaginator {
     }
 
     /// Convert markdown to NSAttributedString with proper styling.
-    /// Uses Apple's `AttributedString(markdown:)` for rich formatting support,
-    /// with a plain-text fallback for older iOS or parse failures.
+    /// Handles headers, bold, italic, and preserves paragraph structure.
+    ///
+    /// Follows standard Markdown newline rules:
+    /// - A single newline is treated as a soft break (space) — text flows together.
+    /// - A blank line (two consecutive newlines) starts a new paragraph.
+    /// - A line ending with two or more trailing spaces is a hard line break.
     private func markdownToAttributedString(_ markdown: String) -> NSAttributedString {
-        // Try Apple's built-in markdown parser first (iOS 15+)
+        let result = NSMutableAttributedString()
+
+        // Split into paragraphs on blank lines (two+ consecutive newlines)
+        let paragraphs = markdown.components(separatedBy: "\n\n")
+
+        for (pIndex, paragraph) in paragraphs.enumerated() {
+            let lines = paragraph.components(separatedBy: "\n")
+
+            for (lIndex, line) in lines.enumerated() {
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+
+                // Skip empty lines within a paragraph block
+                guard !trimmedLine.isEmpty else { continue }
+
+                // Check for headers
+                var headerLevel = 0
+                var headerText = line
+                if trimmedLine.hasPrefix("######") {
+                    headerLevel = 6
+                    headerText = String(trimmedLine.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                } else if trimmedLine.hasPrefix("#####") {
+                    headerLevel = 5
+                    headerText = String(trimmedLine.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                } else if trimmedLine.hasPrefix("####") {
+                    headerLevel = 4
+                    headerText = String(trimmedLine.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+                } else if trimmedLine.hasPrefix("###") {
+                    headerLevel = 3
+                    headerText = String(trimmedLine.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                } else if trimmedLine.hasPrefix("##") {
+                    headerLevel = 2
+                    headerText = String(trimmedLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+                } else if trimmedLine.hasPrefix("#") {
+                    headerLevel = 1
+                    headerText = String(trimmedLine.dropFirst(1)).trimmingCharacters(in: .whitespaces)
+                }
+
+                if headerLevel > 0 {
+                    // Headers always get their own block
+                    if result.length > 0 {
+                        result.append(NSAttributedString(string: "\n", attributes: config.attributes))
+                    }
+                    result.append(createHeaderAttributedString(headerText, level: headerLevel))
+                    // Ensure a newline after the header so subsequent text starts on a new line
+                    result.append(NSAttributedString(string: "\n", attributes: config.attributes))
+                } else {
+                    // Regular text line
+                    let hasHardBreak = line.hasSuffix("  ") // two+ trailing spaces = hard break
+
+                    // Join with previous line in the same paragraph using a space (soft break)
+                    if lIndex > 0 && result.length > 0 {
+                        // Check if the previous content ended with a hard break newline
+                        let lastChar = result.string.last
+                        if lastChar != "\n" {
+                            result.append(NSAttributedString(string: " ", attributes: config.attributes))
+                        }
+                    }
+
+                    let lineText = hasHardBreak ? String(line.dropLast(2)) : line
+                    result.append(parseInlineMarkdown(lineText))
+
+                    // If the line had trailing spaces, insert a hard line break
+                    if hasHardBreak {
+                        result.append(NSAttributedString(string: "\n", attributes: config.attributes))
+                    }
+                }
+            }
+
+            // Add paragraph separator between paragraphs (except after the last one)
+            if pIndex < paragraphs.count - 1 {
+                // Avoid double newlines if the paragraph ended with a header or hard break
+                let endsWithNewline = result.string.hasSuffix("\n")
+                if !endsWithNewline {
+                    result.append(NSAttributedString(string: "\n", attributes: config.attributes))
+                }
+            }
+        }
+
+        return result
+    }
+
+    /// Create an attributed string for a header
+    private func createHeaderAttributedString(_ text: String, level: Int) -> NSAttributedString {
+        // Scale font size based on header level
+        let sizeMultiplier: CGFloat = switch level {
+            case 1: 1.75
+            case 2: 1.5
+            case 3: 1.25
+            case 4: 1.15
+            case 5: 1.1
+            default: 1.05
+        }
+
+        let headerFontSize = config.fontSize * sizeMultiplier
+        var headerFont: UIFont
+        if config.fontName == "San Francisco" || config.fontName == "System" {
+            headerFont = UIFont.systemFont(ofSize: headerFontSize, weight: .bold)
+        } else {
+            headerFont = UIFont(name: config.fontName, size: headerFontSize) ?? UIFont.systemFont(ofSize: headerFontSize)
+            // Apply bold trait
+            if let boldDescriptor = headerFont.fontDescriptor.withSymbolicTraits(.traitBold) {
+                headerFont = UIFont(descriptor: boldDescriptor, size: headerFontSize)
+            }
+        }
+
+        // Header paragraph style with extra spacing
+        let headerParagraphStyle = NSMutableParagraphStyle()
+        headerParagraphStyle.lineSpacing = config.lineSpacing
+        headerParagraphStyle.paragraphSpacingBefore = config.paragraphSpacing
+        headerParagraphStyle.paragraphSpacing = config.paragraphSpacing / 2
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: headerFont,
+            .paragraphStyle: headerParagraphStyle,
+            .foregroundColor: UIColor.label
+        ]
+
+        // Parse inline markdown within the header text
+        let inlineAttributed = parseInlineMarkdown(text)
+        let mutable = NSMutableAttributedString(attributedString: inlineAttributed)
+        mutable.addAttributes(attributes, range: NSRange(location: 0, length: mutable.length))
+
+        return mutable
+    }
+
+    /// Parse inline markdown (bold, italic) within a line
+    private func parseInlineMarkdown(_ text: String) -> NSAttributedString {
+        // Try Apple's built-in markdown parser for inline elements
         if let attributed = try? AttributedString(
-            markdown: markdown,
+            markdown: text,
             options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
         ) {
             let mutable = NSMutableAttributedString(attributed)
-            // Apply our font and paragraph style to the whole string, preserving
-            // bold/italic traits added by the markdown parser
             let fullRange = NSRange(location: 0, length: mutable.length)
-            mutable.addAttributes(
-                [
-                    .font: config.font,
-                    .paragraphStyle: config.paragraphStyle,
-                    .foregroundColor: UIColor.label
-                ],
-                range: fullRange
-            )
+
+            // Apply base styling
+            mutable.addAttributes(config.attributes, range: fullRange)
+
             // Re-apply bold/italic from the markdown parse
             mutable.enumerateAttribute(.font, in: fullRange) { value, range, _ in
                 guard let existingFont = value as? UIFont else { return }
@@ -132,8 +257,8 @@ class TextPaginator {
             return mutable
         }
 
-        // Fallback: plain text with our styling
-        return NSAttributedString(string: markdown, attributes: config.attributes)
+        // Fallback: plain text
+        return NSAttributedString(string: text, attributes: config.attributes)
     }
 
     /// Split attributed string into pages based on available height
@@ -233,7 +358,8 @@ class TextPaginator {
         return pages
     }
 
-    /// Adjust range to break at paragraph or sentence boundary
+    /// Adjust range to break at a clean boundary without wasting too much space.
+    /// Only searches the last portion of the page to keep pages consistently full.
     private func adjustRangeToBreakPoint(
         attributedString: NSAttributedString,
         proposedRange: NSRange
@@ -246,22 +372,28 @@ class TextPaginator {
             return proposedRange
         }
 
-        // Look backwards for a good break point (paragraph > sentence > word)
-        let searchRange = NSRange(location: proposedRange.location, length: proposedRange.length)
+        // Only search the last 15% of the page for clean break points.
+        // This keeps pages consistently full while still avoiding mid-word breaks.
+        let minBreakLocation = proposedRange.location + (proposedRange.length * 85) / 100
+        let searchRange = NSRange(
+            location: minBreakLocation,
+            length: endLocation - minBreakLocation
+        )
 
-        // Try to find paragraph break (double newline or single newline)
+        guard searchRange.length > 0 else { return proposedRange }
+
+        // Try to find paragraph break (newline) in the tail
         let paragraphBreak = text.rangeOfCharacter(
             from: CharacterSet.newlines,
             options: .backwards,
             range: searchRange
         )
 
-        if paragraphBreak.location != NSNotFound && paragraphBreak.location > proposedRange.location + proposedRange.length / 2 {
-            // Found a paragraph break in the latter half of the page
+        if paragraphBreak.location != NSNotFound {
             return NSRange(location: proposedRange.location, length: paragraphBreak.location - proposedRange.location + 1)
         }
 
-        // Try to find sentence break (. ! ?)
+        // Try to find sentence break (. ! ?) in the tail
         let sentenceEnders = CharacterSet(charactersIn: ".!?")
         let sentenceBreak = text.rangeOfCharacter(
             from: sentenceEnders,
@@ -269,20 +401,19 @@ class TextPaginator {
             range: searchRange
         )
 
-        if sentenceBreak.location != NSNotFound && sentenceBreak.location > proposedRange.location + proposedRange.length / 3 {
-            // Found a sentence break - include one character after (space) if possible
+        if sentenceBreak.location != NSNotFound {
             let breakEnd = min(sentenceBreak.location + 2, text.length)
             return NSRange(location: proposedRange.location, length: breakEnd - proposedRange.location)
         }
 
-        // Try to find word break (space)
+        // Try to find word break (space) in the tail
         let wordBreak = text.rangeOfCharacter(
             from: CharacterSet.whitespaces,
             options: .backwards,
             range: searchRange
         )
 
-        if wordBreak.location != NSNotFound && wordBreak.location > proposedRange.location {
+        if wordBreak.location != NSNotFound {
             return NSRange(location: proposedRange.location, length: wordBreak.location - proposedRange.location + 1)
         }
 
