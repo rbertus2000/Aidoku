@@ -54,27 +54,6 @@ class ReaderPagedTextViewController: BaseObservingViewController {
     /// restore the correct position after the initial pagination completes.
     private var pendingStartPage: Int?
 
-    // MARK: - Persistent Character Offset
-
-    /// Save character offset for the current chapter so position survives font/size changes
-    /// and cross-session restores.
-    private func saveCharacterOffset() {
-        guard let chapterKey = chapter?.key else { return }
-        UserDefaults.standard.set(currentCharacterOffset, forKey: "TextReader.offset.\(chapterKey)")
-
-        // Also save normalized progress (0.0–1.0) so scroll reader can restore position
-        let totalPages = max(1, pages.count)
-        let currentIndex = pages.lastIndex(where: { $0.range.location <= currentCharacterOffset }) ?? 0
-        let progress = Double(currentIndex) / Double(max(1, totalPages - 1))
-        UserDefaults.standard.set(progress, forKey: "TextReader.progress.\(chapterKey)")
-    }
-
-    /// Load a previously saved character offset for a chapter. Returns nil if none stored.
-    private func loadCharacterOffset(for chapterKey: String) -> Int? {
-        let value = UserDefaults.standard.object(forKey: "TextReader.offset.\(chapterKey)")
-        return value as? Int
-    }
-
     // Double page support
     private var usesDoublePages = false
     private var usesAutoPageLayout = false
@@ -293,17 +272,20 @@ class ReaderPagedTextViewController: BaseObservingViewController {
                 // Coming from next chapter (swiping back) — always go to last page
                 targetIndex = pages.count - 1
                 currentCharacterOffset = pages[targetIndex].range.location
-            } else if let chapterKey = chapter?.key,
-               let storedOffset = loadCharacterOffset(for: chapterKey) {
-                // First try to restore from our stored character offset (survives font changes)
-                currentCharacterOffset = storedOffset
-                targetIndex = pages.lastIndex(where: { $0.range.location <= storedOffset }) ?? 0
-            } else if let chapterKey = chapter?.key,
-                      let progress = UserDefaults.standard.object(forKey: "TextReader.progress.\(chapterKey)") as? Double {
-                // Fall back to shared progress (e.g. from scroll reader)
-                let idx = Int(progress * Double(max(1, pages.count - 1)))
-                targetIndex = min(max(0, idx), pages.count - 1)
-                currentCharacterOffset = pages[targetIndex].range.location
+            } else if let chapterKey = chapter?.key {
+                Task {
+                    let targetIndex: Int
+                    if let progress = await loadReadingProgress(for: chapterKey), progress > 0 {
+                        // Fall back to shared progress (e.g. from scroll reader)
+                        let idx = Int(progress * Double(max(1, pages.count - 1)))
+                        targetIndex = min(max(0, idx), pages.count - 1)
+                    } else {
+                        targetIndex = min(pending - 1, pages.count - 1)
+                    }
+                    currentCharacterOffset = pages[targetIndex].range.location
+                    move(toPage: min(targetIndex, max(0, pages.count - 1)), animated: false)
+                }
+                return
             } else {
                 // Fall back to page number from History (first open, no stored offset)
                 targetIndex = min(pending - 1, pages.count - 1)
@@ -315,6 +297,20 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         }
 
         move(toPage: min(targetIndex, max(0, pages.count - 1)), animated: false)
+    }
+
+    /// Load previously saved reading progress for a chapter.
+    private func loadReadingProgress(for chapterKey: String) async -> CGFloat? {
+        await CoreDataManager.shared.container.performBackgroundTask { [weak self] context in
+            guard let self else { return nil }
+            let object = CoreDataManager.shared.getHistory(
+                sourceId: self.viewModel.manga.sourceKey,
+                mangaId: self.viewModel.manga.key,
+                chapterId: chapterKey,
+                context: context
+            )
+            return object?.scrollPosition.map { CGFloat($0.doubleValue) }
+        }
     }
 
     private func getCurrentText() -> String? {
@@ -374,7 +370,6 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         // Track character offset for position restoration after repagination
         if targetIndex < pages.count {
             currentCharacterOffset = pages[targetIndex].range.location
-            saveCharacterOffset()
         }
 
         let viewController = createPageViewController(for: targetIndex)
@@ -397,7 +392,7 @@ class ReaderPagedTextViewController: BaseObservingViewController {
         }
 
         // Update current page display (1-indexed for UI)
-        delegate?.setCurrentPage(targetIndex + 1)
+        delegate?.setCurrentPage(targetIndex + 1, position: nil)
         updateSliderPosition()
     }
 
@@ -629,9 +624,8 @@ extension ReaderPagedTextViewController: UIPageViewControllerDelegate {
             currentPageIndex = doublePage.leftPage.id
             currentCharacterOffset = doublePage.leftPage.range.location
         }
-        saveCharacterOffset()
 
-        delegate?.setCurrentPage(currentPageIndex + 1)
+        delegate?.setCurrentPage(currentPageIndex + 1, position: nil)
         updateSliderPosition()
     }
 

@@ -51,16 +51,18 @@ class ReaderTextViewController: BaseViewController {
 
     // MARK: - Scroll Position Persistence
 
-    /// Save reading progress (0.0–1.0) for the current chapter.
-    private func saveReadingProgress(_ progress: CGFloat) {
-        guard let chapterKey = chapter?.key else { return }
-        UserDefaults.standard.set(Double(progress), forKey: "TextReader.progress.\(chapterKey)")
-    }
-
     /// Load previously saved reading progress for a chapter.
-    private func loadReadingProgress(for chapterKey: String) -> CGFloat? {
-        let value = UserDefaults.standard.object(forKey: "TextReader.progress.\(chapterKey)")
-        return (value as? Double).map { CGFloat($0) }
+    private func loadReadingProgress(for chapterKey: String) async -> CGFloat? {
+        await CoreDataManager.shared.container.performBackgroundTask { [weak self] context in
+            guard let self else { return nil }
+            let object = CoreDataManager.shared.getHistory(
+                sourceId: self.viewModel.manga.sourceKey,
+                mangaId: self.viewModel.manga.key,
+                chapterId: chapterKey,
+                context: context
+            )
+            return object?.scrollPosition.map { CGFloat($0.doubleValue) }
+        }
     }
 
     // MARK: - Views
@@ -445,21 +447,23 @@ class ReaderTextViewController: BaseViewController {
 
             let prevHeight = showsPreviousTransition ? transitionPageHeight : 0
 
-            if restorePosition, let savedProgress = loadReadingProgress(for: chapter.key) {
+            if restorePosition {
                 pendingScrollRestore = true
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    self.updateEstimatedPageCount()
-                    let sectionHeight = sectionContentHeight(at: 0)
-                    let screenHeight = scrollView.frame.size.height
-                    if sectionHeight > 0, screenHeight > 0 {
-                        let targetOffset = prevHeight + (sectionHeight - screenHeight) * savedProgress
-                        scrollView.setContentOffset(CGPoint(x: 0, y: max(prevHeight, targetOffset)), animated: false)
-                        let currentPage = min(estimatedPageCount, Int(savedProgress * CGFloat(estimatedPageCount)) + 1)
-                        lastReportedPage = currentPage
-                        delegate?.setCurrentPage(currentPage)
+                    if let savedProgress = await self.loadReadingProgress(for: chapter.key) {
+                        self.updateEstimatedPageCount()
+                        let sectionHeight = self.sectionContentHeight(at: 0)
+                        let screenHeight = self.scrollView.frame.size.height
+                        if sectionHeight > 0, screenHeight > 0 {
+                            let targetOffset = prevHeight + (sectionHeight - screenHeight) * savedProgress
+                            self.scrollView.setContentOffset(CGPoint(x: 0, y: max(prevHeight, targetOffset)), animated: false)
+                            let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
+                            self.lastReportedPage = currentPage
+                            self.delegate?.setCurrentPage(currentPage, position: savedProgress)
+                        }
                     }
-                    pendingScrollRestore = false
+                    self.pendingScrollRestore = false
                 }
             } else {
                 scrollView.setContentOffset(.init(x: 0, y: prevHeight), animated: false)
@@ -707,7 +711,7 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         let offsetInSection = scrollView.contentOffset.y - startY
         let progress = min(1, max(0, offsetInSection / (height - screenHeight)))
         let page = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
-        delegate?.setCurrentPage(page)
+        delegate?.setCurrentPage(page, position: nil)
     }
 
     func setChapter(_ chapter: AidokuRunner.Chapter, startPage: Int) {
@@ -739,21 +743,14 @@ extension ReaderTextViewController: UIScrollViewDelegate {
 
         let currentPage = min(estimatedPageCount, Int(progress * CGFloat(estimatedPageCount)) + 1)
 
-        isReportingProgress = true
-        if currentPage != lastReportedPage {
-            lastReportedPage = currentPage
-            delegate?.setCurrentPage(currentPage)
-        }
-        isReportingProgress = false
-
-        saveReadingProgress(progress)
-
         // Mark as completed when reaching the end of a section
         let sectionEndY = startY + height
         if scrollView.contentOffset.y + screenHeight >= sectionEndY - 50 && !hasReachedEnd {
             hasReachedEnd = true
-            delegate?.setCurrentPage(currentPage)
+            delegate?.setCurrentPage(currentPage, position: Double(progress))
             delegate?.setCompleted()
+        } else {
+            delegate?.setCurrentPage(currentPage, position: Double(progress))
         }
     }
 

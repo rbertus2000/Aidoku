@@ -41,6 +41,7 @@ class ReaderViewController: BaseObservingViewController {
         }
     }
     private var currentPage = 1
+    private var currentPosition: Double?
     private var sessionReadPages: Set<Int> = []
     private var sessionStartDate: Date?
     private var sessionLastInteraction: Date?
@@ -390,6 +391,7 @@ class ReaderViewController: BaseObservingViewController {
             chapter: chapter.toOld(sourceId: sourceId, mangaId: mangaId),
             progress: currentPage,
             totalPages: totalPages,
+            scrollPosition: currentPosition,
             completed: completed
         )
         await saveReadingSession(chapter: chapter)
@@ -749,11 +751,15 @@ extension ReaderViewController: ReaderHoldingDelegate {
         loadNavbarTitle()
     }
 
-    func setCurrentPage(_ page: Int) {
-        setCurrentPages(page...page)
+    func setCurrentPage(_ page: Int, position: Double? = nil) {
+        setCurrentPages(page...page, position: position)
     }
 
     func setCurrentPages(_ pages: ClosedRange<Int>) {
+        setCurrentPages(pages, position: nil)
+    }
+
+    private func setCurrentPages(_ pages: ClosedRange<Int>, position: Double? = nil) {
         guard let totalPages = toolbarView.totalPages else { return }
 
         updateDescriptionButton(pages: pages)
@@ -766,6 +772,7 @@ extension ReaderViewController: ReaderHoldingDelegate {
 
         let page = max(1, min(pages.lowerBound, totalPages))
         currentPage = page
+        currentPosition = position
         toolbarView.currentPage = page
         toolbarView.updateSliderPosition()
         // Mark as completed when reaching the last page
