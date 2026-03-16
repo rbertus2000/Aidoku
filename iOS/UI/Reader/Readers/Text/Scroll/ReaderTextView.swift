@@ -71,6 +71,7 @@ struct ReaderTextView: View {
                horizontalPadding: horizontalPadding
            )
            .frame(maxWidth: .infinity, alignment: .leading)
+           .ignoresSafeArea()
        }
    }
 }
