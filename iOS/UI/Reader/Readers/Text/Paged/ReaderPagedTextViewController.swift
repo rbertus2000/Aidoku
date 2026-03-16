@@ -634,6 +634,15 @@ extension ReaderPagedTextViewController: UIPageViewControllerDelegate {
         delegate?.setCurrentPage(currentPageIndex + 1)
         updateSliderPosition()
     }
+
+    func pageViewController(
+        _ pageViewController: UIPageViewController,
+        willTransitionTo pendingViewControllers: [UIViewController]
+    ) {
+        if UserDefaults.standard.bool(forKey: "Reader.hideBarsOnSwipe") {
+            delegate?.hideBars()
+        }
+    }
 }
 
 // MARK: - Page View Controller Data Source

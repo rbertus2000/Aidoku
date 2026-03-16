@@ -758,6 +758,10 @@ extension ReaderTextViewController: UIScrollViewDelegate {
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if UserDefaults.standard.bool(forKey: "Reader.hideBarsOnSwipe") {
+            delegate?.hideBars()
+        }
+
         if !decelerate {
             checkInfiniteLoad()
         }
