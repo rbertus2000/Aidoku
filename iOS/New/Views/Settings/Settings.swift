@@ -9,7 +9,6 @@ import AidokuRunner
 import UIKit
 
 enum Settings {
-
     // All available font families on the system
     private static let availableFonts: [String] = {
         var fonts = UIFont.familyNames.sorted()
@@ -536,7 +535,7 @@ extension Settings {
             ))
         ),
         .init(
-            title: NSLocalizedString("TEXT_READER"),
+            title: String(format: NSLocalizedString("%@_EXPERIMENTAL"), NSLocalizedString("TEXT_READER")),
             value: .group(.init(
                 items: [
                     .init(

@@ -306,7 +306,7 @@ struct ReaderSettingsView: View {
                 }
 
                 // Text Reader Settings
-                Section {
+                Section(String(format: NSLocalizedString("%@_EXPERIMENTAL"), NSLocalizedString("TEXT_READER"))) {
                     SettingView(
                         setting: .init(
                             key: "Reader.textReaderStyle",
@@ -355,8 +355,6 @@ struct ReaderSettingsView: View {
                             value: .stepper(.init(minimumValue: 8, maximumValue: 48, stepValue: 4))
                         )
                     )
-                } header: {
-                    Text(NSLocalizedString("TEXT_READER"))
                 }
             }
             .animation(.default, value: downsampleImages.value)
