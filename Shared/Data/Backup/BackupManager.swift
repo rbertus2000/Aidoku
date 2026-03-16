@@ -24,6 +24,30 @@ actor BackupManager {
     private static let backupTaskIdentifier = (Bundle.main.bundleIdentifier ?? "") + ".backup"
     private static let maxAutoBackups = 4
 
+    private static let excludedSettings = [
+        "Browse.sourceLists", // stored separately
+        "General.icloudSync"
+    ]
+    static let excludedSettingsPrefixes = [
+        "Flag",
+        "Data"
+    ]
+    static let allowedSettingsPrefixes = [
+        "General",
+        "Library",
+        "Browse",
+        "History",
+        "Reader",
+        "Tracker",
+        "Tracking",
+        "AutomaticBackups",
+        "Downloads",
+        "Manga",
+        "Logs",
+        "Search",
+        "Token"
+    ]
+
     func save(backup: Backup, url: URL? = nil) {
         Self.directory.createDirectory()
         let encoder = PropertyListEncoder()
@@ -129,18 +153,18 @@ actor BackupManager {
             } else {
                 []
             }
-            let categories: [String] = if options.categories {
-                CoreDataManager.shared.getCategoryTitles(context: context)
+            let categories: [BackupCategory] = if options.categories {
+                CoreDataManager.shared.getCategories(context: context).compactMap(BackupCategory.init)
             } else {
                 []
             }
-            let sources = CoreDataManager.shared.getSources(context: context).compactMap {
+            let sources = SourceManager.shared.sources.compactMap {
                 $0.id
             }
             let sourceLists = options.sourceLists ? SourceManager.shared.sourceListsStrings : []
 
             let settings: [String: JsonAnyValue]? = if options.settings {
-                self.exportSettings(includeSensitive: options.sensitiveSettings)
+                self.exportSettings(includeSensitive: options.sensitiveSettings, sourceKeys: sources)
             } else {
                 nil
             }
@@ -164,7 +188,7 @@ actor BackupManager {
         }
     }
 
-    private nonisolated func exportSettings(includeSensitive: Bool) -> [String: JsonAnyValue] {
+    private nonisolated func exportSettings(includeSensitive: Bool, sourceKeys: [String]) -> [String: JsonAnyValue] {
         var allSettings = UserDefaults.standard.dictionaryRepresentation()
 
         // filter out potentially sensitive info
@@ -179,8 +203,11 @@ actor BackupManager {
 
         // convert to export compatible types
         for (key, value) in allSettings {
-            if key == "Browse.sourceLists" {
-                continue // skip source lists, as these are stored separately
+            guard
+                Self.allowedSettingsPrefixes.contains(where: { key.hasPrefix($0) }) || sourceKeys.contains(where: { key.hasPrefix($0) }),
+                !Self.excludedSettings.contains(key)
+            else {
+                continue
             }
             if let value = value as? String {
                 convertedSettings[key] = .string(value)
@@ -249,7 +276,17 @@ actor BackupManager {
         Task {
             // restore settings
             if let settings = backup.settings {
+                let sourceKeyPrefixes = SourceManager.shared.sources.map { "\($0.key)." }
                 for (key, value) in settings {
+                    let hasAllowedPrefix = Self.allowedSettingsPrefixes.contains(where: { key.hasPrefix($0) })
+                        || sourceKeyPrefixes.contains(where: { key.hasPrefix($0) })
+                    guard
+                        hasAllowedPrefix,
+                        !Self.excludedSettings.contains(key),
+                        !Self.excludedSettingsPrefixes.contains(where: { key.hasPrefix($0) })
+                    else {
+                        continue
+                    }
                     UserDefaults.standard.set(value.toRaw(), forKey: key)
                 }
             }
@@ -287,7 +324,7 @@ actor BackupManager {
                 let result = await CoreDataManager.shared.container.performBackgroundTask { context in
                     CoreDataManager.shared.clearCategories(context: context)
                     for category in backupCategories {
-                        CoreDataManager.shared.createCategory(title: category, context: context)
+                        _ = category.toObject(context: context)
                     }
                     do {
                         try context.save()
@@ -486,16 +523,14 @@ actor BackupManager {
             UIApplication.shared.isIdleTimerDisabled = false
 
             if let backupError {
-                Task {
-                    // show error alert
-                    delegate?.presentAlert(
-                        title: NSLocalizedString("BACKUP_ERROR"),
-                        message: String(
-                            format: NSLocalizedString("BACKUP_ERROR_TEXT"),
-                            (backupError as? BackupError)?.stringValue ?? NSLocalizedString("UNKNOWN")
-                        )
+                // show error alert
+                delegate?.presentAlert(
+                    title: NSLocalizedString("BACKUP_ERROR"),
+                    message: String(
+                        format: NSLocalizedString("BACKUP_ERROR_TEXT"),
+                        (backupError as? BackupError)?.stringValue ?? NSLocalizedString("UNKNOWN")
                     )
-                }
+                )
             } else {
                 // show missing sources alert if there are any
                 let missingSources = (backup.sources ?? []).filter {

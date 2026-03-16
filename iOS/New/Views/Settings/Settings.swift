@@ -68,14 +68,14 @@ enum Settings {
                             .init(
                                 key: "General.icloudSync",
                                 title: String(format: NSLocalizedString("%@_EXPERIMENTAL"), NSLocalizedString("ICLOUD_SYNC")),
-                                requires: "isiCloudAvailable",
+                                requires: "Flag.isiCloudAvailable",
                                 value: .toggle(.init())
                             )
                         ])))
                     ],
                     icon: .system(name: "icloud.fill", color: "blue"),
                     info: NSLocalizedString(
-                        UserDefaults.standard.bool(forKey: "isSideloaded")
+                        UserDefaults.standard.bool(forKey: "Flag.isSideloaded")
                             ? "ICLOUD_SYNC_TEXT_SIDELOADED"
                             : "ICLOUD_SYNC_TEXT_EXPERIMENTAL"
                     )
@@ -223,6 +223,11 @@ extension Settings {
                     value: .page(.init(items: []))
                 ),
                 .init(
+                    key: "Library.filterGroups",
+                    title: NSLocalizedString("FILTER_GROUPS"),
+                    value: .page(.init(items: []))
+                ),
+                .init(
                     key: "Library.defaultCategory",
                     title: NSLocalizedString("DEFAULT_CATEGORY"),
                     value: .custom
@@ -233,6 +238,12 @@ extension Settings {
                     notification: "updateLibraryLock",
                     requires: "Library.lockLibrary",
                     value: .custom
+                ),
+                .init(
+                    key: "Library.showUncategorizedCategory",
+                    title: NSLocalizedString("SHOW_UNCATEGORIZED_CATEGORY"),
+                    notification: "updateCategories",
+                    value: .toggle(.init())
                 )
             ]))
         ),
@@ -352,6 +363,11 @@ extension Settings {
             .init(
                 key: "Reader.liveText",
                 title: NSLocalizedString("LIVE_TEXT"),
+                value: .toggle(.init())
+            ),
+            .init(
+                key: "Reader.hideBarsOnSwipe",
+                title: NSLocalizedString("HIDE_BARS_ON_SWIPE"),
                 value: .toggle(.init())
             ),
             .init(
@@ -501,7 +517,7 @@ extension Settings {
                         key: "Reader.pillarboxAmount",
                         title: NSLocalizedString("PILLARBOX_AMOUNT"),
                         requires: "Reader.pillarbox",
-                        value: .stepper(.init(minimumValue: 0, maximumValue: 100, stepValue: 5))
+                        value: .stepper(.init(minimumValue: 5, maximumValue: 95, stepValue: 5))
                     ),
                     .init(
                         key: "Reader.pillarboxOrientation",

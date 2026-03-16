@@ -196,7 +196,7 @@ extension MangaListCell {
         if editing {
             selectionView.setSelected(false, animated: false)
         }
-        let shouldShowBadge = editing ? false : badgeView.badgeNumber > 0 || badgeView.badgeNumber2 > 2
+        let shouldShowBadge = editing ? false : badgeView.badgeNumber > 0 || badgeView.badgeNumber2 > 0
         if animated {
             if editing {
                 self.selectionView.isHidden = false
@@ -282,7 +282,7 @@ extension MangaListCell {
                 urlRequest = URLRequest(url: fileUrl)
             } else if let sourceId {
                 // ensure sources are loaded so we can get the modified image request
-                await SourceManager.shared.loadSources()
+                await SourceManager.shared.waitForSourcesLoad()
                 if let source = SourceManager.shared.source(for: sourceId) {
                     urlRequest = await source.getModifiedImageRequest(url: url, context: nil)
                 }
@@ -360,6 +360,10 @@ private class TagScrollView: UIView {
         fadeView.isUserInteractionEnabled = false
         return fadeView
     }()
+
+    override var intrinsicContentSize: CGSize {
+        stackView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+    }
 
     init() {
         super.init(frame: .zero)
@@ -457,6 +461,7 @@ private class FadeView: UIView {
 private class TagLabelView: UIView {
     private lazy var label = {
         let label = UILabel()
+        label.adjustsFontForContentSizeCategory = true
         label.font = UIFont.preferredFont(forTextStyle: .caption2)
         label.textColor = .secondaryLabel
         label.numberOfLines = 1

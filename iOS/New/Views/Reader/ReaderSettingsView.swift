@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ReaderSettingsView: View {
-    let mangaId: String
+    let mangaId: MangaIdentifier
 
     @State private var readingMode: ReadingMode?
     @State private var tapZones: DefaultTapZones
@@ -26,7 +26,7 @@ struct ReaderSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(mangaId: String) {
+    init(mangaId: MangaIdentifier) {
         self.mangaId = mangaId
         self._readingMode = State(
             initialValue: UserDefaults.standard.string(forKey: "Reader.readingMode.\(mangaId)")
@@ -100,6 +100,13 @@ struct ReaderSettingsView: View {
                         setting: .init(
                             key: "Reader.liveText",
                             title: NSLocalizedString("LIVE_TEXT"),
+                            value: .toggle(.init())
+                        )
+                    )
+                    SettingView(
+                        setting: .init(
+                            key: "Reader.hideBarsOnSwipe",
+                            title: NSLocalizedString("HIDE_BARS_ON_SWIPE"),
                             value: .toggle(.init())
                         )
                     )
@@ -273,7 +280,7 @@ struct ReaderSettingsView: View {
                                 key: "Reader.pillarboxAmount",
                                 title: NSLocalizedString("PILLARBOX_AMOUNT"),
                                 requires: "Reader.pillarbox",
-                                value: .stepper(.init(minimumValue: 0, maximumValue: 100, stepValue: 5))
+                                value: .stepper(.init(minimumValue: 5, maximumValue: 95, stepValue: 5))
                             )
                         )
                         SettingView(

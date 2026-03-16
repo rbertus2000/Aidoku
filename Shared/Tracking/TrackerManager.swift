@@ -22,13 +22,15 @@ actor TrackerManager {
     static let anilist = AniListTracker()
     /// An instance of the MyAnimeList tracker.
     static let myanimelist = MyAnimeListTracker()
+    /// An instance of the MangaBaka tracker.
+    static let mangabaka = MangaBakaTracker()
     /// An instance of the Shikimori tracker.
     static let shikimori = ShikimoriTracker()
     /// An instance of the Bangumi tracker.
     static let bangumi = BangumiTracker()
 
     /// An array of the available trackers.
-    static let trackers: [Tracker] = [komga, kavita, anilist, myanimelist, shikimori, bangumi]
+    static let trackers: [Tracker] = [komga, kavita, anilist, myanimelist, mangabaka, shikimori, bangumi]
 
     /// A boolean indicating if there is a tracker that is currently logged in.
     static var hasAvailableTrackers: Bool {
@@ -41,9 +43,10 @@ actor TrackerManager {
     }
 
     struct TrackingState: Codable {
-        var failedPageUpdates: [PageTrackUpdate] = []
+        var pendingPageUpdates: [PageTrackUpdate] = []
     }
     private var trackingState: TrackingState
+    private var pageUpdateTask: Task<(), Never>?
 
     init() {
         self.trackingState = UserDefaults.standard.data(forKey: "Tracker.pageTrackingState")
@@ -180,30 +183,24 @@ actor TrackerManager {
             ).map { $0.toItem() }
         }
 
-        var failedUpdates: [PageTrackUpdate] = []
+        var newUpdates: [PageTrackUpdate] = []
 
         for item in trackItems {
             guard let tracker = Self.getTracker(id: item.trackerId) as? PageTracker else {
                 continue
             }
             for chapter in chapters {
-                do {
-                    try await tracker.setProgress(trackId: item.id, chapter: chapter, progress: progress)
-                } catch {
-                    LogManager.logger.error("Failed to set tracker progress (\(tracker.id)): \(error)")
-                    failedUpdates.append(.init(
-                        trackerId: tracker.id,
-                        trackId: item.id,
-                        chapter: chapter,
-                        progres: progress
-                    ))
-                }
+                newUpdates.append(.init(
+                    trackerId: tracker.id,
+                    trackId: item.id,
+                    chapter: chapter,
+                    progress: progress
+                ))
             }
         }
 
-        if !failedUpdates.isEmpty {
-            logFailedUpdates(failedUpdates)
-        }
+        queuePageUpdates(newUpdates)
+        await processPendingUpdates()
     }
 
     /// Register a new track item to a manga and save to the data store.
@@ -228,21 +225,20 @@ actor TrackerManager {
                 highestChapterRead: highestReadNumber,
                 earliestReadDate: earliestReadDate
             )
-            await TrackerManager.shared.saveTrackItem(item: TrackItem(
+            let trackItem = TrackItem(
                 id: id ?? item.id,
                 trackerId: tracker.id,
                 sourceId: manga.sourceKey,
                 mangaId: manga.key,
                 title: item.title ?? manga.title
-            ))
+            )
+            await TrackerManager.shared.saveTrackItem(item: trackItem)
 
             // Sync progress from tracker if enabled or is enhanced tracker
             if UserDefaults.standard.bool(forKey: "Tracking.autoSyncFromTracker") || (tracker is EnhancedTracker) || (tracker is PageTracker) {
-                if tracker is PageTracker {
-                    await syncPageTrackerHistory(manga: manga)
-                } else {
-                    await syncProgressFromTracker(tracker: tracker, trackId: id ?? item.id, manga: manga)
-                }
+                await syncProgressFromTracker(tracker: tracker, trackId: id ?? item.id, manga: manga)
+            } else {
+                NotificationCenter.default.post(name: .syncTrackItem, object: trackItem)
             }
         } catch {
             LogManager.logger.error("Failed to register tracker \(tracker.id): \(error)")
@@ -301,8 +297,8 @@ actor TrackerManager {
     /// Checks if there is a tracker that can be added to the given manga.
     func hasAvailableTrackers(sourceKey: String, mangaKey: String) async -> Bool {
         for tracker in Self.trackers {
-            let canRegister = try? await tracker.canRegister(sourceKey: sourceKey, mangaKey: mangaKey)
-            if canRegister == true {
+            let canRegister = tracker.canRegister(sourceKey: sourceKey, mangaKey: mangaKey)
+            if canRegister {
                 return true
             }
         }
@@ -316,24 +312,36 @@ actor TrackerManager {
         manga: AidokuRunner.Manga,
         chapters: [AidokuRunner.Chapter]? = nil
     ) async {
-        let chaptersToMark = await getChaptersToSyncProgressFromTracker(
-            tracker: tracker,
-            trackId: trackId,
-            manga: manga,
-            chapters: chapters
-        )
-        if !chaptersToMark.isEmpty {
-            await HistoryManager.shared.addHistory(
-                sourceId: manga.sourceKey,
-                mangaId: manga.key,
-                chapters: chaptersToMark,
-                skipTracker: tracker
+        if tracker is PageTracker {
+            await syncPageTrackerHistory(
+                tracker: tracker,
+                manga: manga,
+                chapters: chapters
             )
+        } else {
+            let chaptersToMark = await getChaptersToSyncProgressFromTracker(
+                tracker: tracker,
+                trackId: trackId,
+                manga: manga,
+                chapters: chapters
+            )
+            if !chaptersToMark.isEmpty {
+                await HistoryManager.shared.addHistory(
+                    sourceId: manga.sourceKey,
+                    mangaId: manga.key,
+                    chapters: chaptersToMark,
+                    skipTracker: tracker
+                )
+            }
         }
     }
 
     /// Sync progress with all linked trackers that support page progress.
-    func syncPageTrackerHistory(manga: AidokuRunner.Manga, chapters: [AidokuRunner.Chapter]? = nil) async {
+    func syncPageTrackerHistory(
+        tracker: Tracker? = nil,
+        manga: AidokuRunner.Manga,
+        chapters: [AidokuRunner.Chapter]? = nil
+    ) async {
         let chapters = if let chapters {
             chapters
         } else {
@@ -353,9 +361,12 @@ actor TrackerManager {
         }
 
         for item in trackItems {
-            guard let tracker = Self.getTracker(id: item.trackerId) as? PageTracker else { continue }
+            guard let targetTracker = Self.getTracker(id: item.trackerId) as? PageTracker else { continue }
+            if let tracker, targetTracker.id != tracker.id {
+                continue // if a specific tracker is provided, only sync that one
+            }
             do {
-                let batchProgress = try await tracker.getProgress(trackId: item.id, chapters: chapters)
+                let batchProgress = try await targetTracker.getProgress(trackId: item.id, chapters: chapters)
                 if result.isEmpty {
                     result = batchProgress
                 } else {
@@ -374,7 +385,7 @@ actor TrackerManager {
                     }
                 }
             } catch {
-                LogManager.logger.error("Failed to get tracker progress (\(tracker.id)): \(error)")
+                LogManager.logger.error("Failed to get tracker progress (\(targetTracker.id)): \(error)")
             }
         }
 
@@ -478,7 +489,7 @@ actor TrackerManager {
     /// Add all applicable enhanced trackers to a given manga.
     func bindEnhancedTrackers(manga: AidokuRunner.Manga) async {
         for tracker in Self.trackers where tracker is EnhancedTracker {
-            if (try? await tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key)) == true {
+            if tracker.canRegister(sourceKey: manga.sourceKey, mangaKey: manga.key) {
                 do {
                     let items = try await tracker.search(for: manga, includeNsfw: true)
                     guard let item = items.first else {
@@ -607,40 +618,50 @@ extension TrackerManager {
 
 // MARK: Tracking State
 extension TrackerManager {
-    func processFailedUpdates() async {
-        guard !trackingState.failedPageUpdates.isEmpty else { return }
+    func processPendingUpdates() async {
+        guard !trackingState.pendingPageUpdates.isEmpty else { return }
 
-        var remainingFailedUpdates: [PageTrackUpdate] = []
-        var successes = 0
+        if let pageUpdateTask {
+            await pageUpdateTask.value
+            return
+        }
 
-        for var update in trackingState.failedPageUpdates {
-            guard let tracker = TrackerManager.getTracker(id: update.trackerId) as? PageTracker else {
-                continue // tracker no longer exists, remove the update
-            }
-            do {
-                try await tracker.setProgress(
-                    trackId: update.trackId,
-                    chapter: update.chapter,
-                    progress: update.progres
-                )
-                successes += 1
-            } catch {
-                LogManager.logger.error("Failed to set tracker progress again (\(tracker.id)): \(error)")
-                update.failCount += 1
-                if update.failCount >= 3 {
-                    LogManager.logger.warn("Removing failed page update after 3 attempts: \(update)")
-                    continue // remove update after three failed attempts (initial + two retries)
+        pageUpdateTask = Task {
+            var stillPending: [PageTrackUpdate] = []
+            var successes = 0
+
+            for var update in trackingState.pendingPageUpdates {
+                guard let tracker = TrackerManager.getTracker(id: update.trackerId) as? PageTracker else {
+                    continue // tracker no longer exists, remove the update
                 }
-                remainingFailedUpdates.append(update)
+                do {
+                    try await tracker.setProgress(
+                        trackId: update.trackId,
+                        chapter: update.chapter,
+                        progress: update.progress
+                    )
+                    if update.failCount > 0 {
+                        successes += 1
+                    }
+                } catch {
+                    LogManager.logger.error("Failed to set tracker progress (\(tracker.id)): \(error)")
+                    update.failCount += 1
+                    if update.failCount >= 3 {
+                        LogManager.logger.warn("Removing failed page update after 3 attempts: \(update)")
+                        continue // remove update after three failed attempts (initial + two retries)
+                    }
+                    stillPending.append(update)
+                }
             }
-        }
 
-        if successes > 0 {
-            LogManager.logger.info("Processed \(successes) previously failed page tracker update\(successes > 1 ? "s" : "")")
-        }
+            if successes > 0 {
+                LogManager.logger.info("Processed \(successes) previously failed page tracker update\(successes > 1 ? "s" : "")")
+            }
 
-        trackingState.failedPageUpdates = remainingFailedUpdates
-        savePageTrackingState()
+            trackingState.pendingPageUpdates = stillPending
+            savePageTrackingState()
+            pageUpdateTask = nil
+        }
     }
 
     private func savePageTrackingState() {
@@ -650,18 +671,18 @@ extension TrackerManager {
         }
     }
 
-    private func logFailedUpdates(_ updates: [PageTrackUpdate]) {
+    private func queuePageUpdates(_ updates: [PageTrackUpdate]) {
         // merge new updates into existing failed updates, preserving the latest ones
         for update in updates {
             // remove any old update, assuming it's not as recent as the new one
-            let existingUpdateIndex = trackingState.failedPageUpdates.firstIndex(where: {
+            let existingUpdateIndex = trackingState.pendingPageUpdates.firstIndex(where: {
                 $0.trackerId == update.trackerId && $0.trackId == update.trackId && $0.chapter.key == update.chapter.key
             })
             if let existingUpdateIndex {
-                trackingState.failedPageUpdates.remove(at: existingUpdateIndex)
+                trackingState.pendingPageUpdates.remove(at: existingUpdateIndex)
             }
             // add new update
-            trackingState.failedPageUpdates.append(update)
+            trackingState.pendingPageUpdates.append(update)
         }
         savePageTrackingState()
     }

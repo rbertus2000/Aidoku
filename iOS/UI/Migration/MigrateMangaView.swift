@@ -374,8 +374,13 @@ struct MigrateMangaView: View {
                                             sourceId: newManga.sourceId,
                                             mangaId: newManga.id,
                                             context: context
-                                        )
-                                    else { continue }
+                                        ),
+                                        let tracker = TrackerManager.getTracker(id: trackerId),
+                                        tracker.canRegister(sourceKey: newManga.sourceId, mangaKey: newManga.id)
+                                    else {
+                                        context.delete(item)
+                                        continue
+                                    }
 
                                     item.sourceId = newManga.sourceId
                                     item.mangaId = newManga.id
@@ -398,6 +403,7 @@ struct MigrateMangaView: View {
                         appDelegate.indicatorProgress = Float(counter) / Float(manga.count * 2)
                     }
                     if let result {
+                        await TrackerManager.shared.bindEnhancedTrackers(manga: result.to.toNew())
                         NotificationCenter.default.post(name: .migratedManga, object: result)
                     }
                 }

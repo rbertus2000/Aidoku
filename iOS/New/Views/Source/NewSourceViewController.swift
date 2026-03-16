@@ -73,6 +73,17 @@ class NewSourceViewController: UIViewController {
         }
     }
 
+    private var searchBinding: Binding<String> {
+        .init(
+            get: { [weak self] in self?.searchText ?? "" },
+            set: { [weak self] in
+                guard let self else { return }
+                self.searchController.searchBar.text = $0
+                self.searchBar(self.searchController.searchBar, textDidChange: $0)
+                self.searchBarSearchButtonClicked(self.searchController.searchBar)
+            }
+        )
+    }
     private var listingsBinding: Binding<[AidokuRunner.Listing]> {
         .init(
             get: { [weak self] in self?.listings ?? [] },
@@ -115,6 +126,7 @@ class NewSourceViewController: UIViewController {
         SearchFilterHeaderView(
             source: source,
             filters: filtersBinding,
+            search: searchBinding,
             enabledFilters: enabledFiltersBinding,
             filtersEmpty: filtersEmptyBinding
         ) { [weak self] in
@@ -145,8 +157,9 @@ class NewSourceViewController: UIViewController {
 
     private var filterSheetView: FilterListSheetView {
         FilterListSheetView(
+            sourceKey: source.key,
             filters: filters ?? [],
-            showResetButton: true,
+            search: searchBinding,
             enabledFilters: enabledFiltersBinding
         )
     }
@@ -193,7 +206,7 @@ class NewSourceViewController: UIViewController {
         self.searchViewController.searchText = self.searchText
 
         // load filters from defaults
-        let filtersData: Data? = SettingsStore.shared.get(key: "\(source.id).filters")
+        let filtersData: Data? = SettingsStore.shared.get(key: "\(source.key).filters")
         if let filtersData {
             let enabledFilters = try? JSONDecoder().decode([FilterValue].self, from: filtersData)
             self.enabledFilters = enabledFilters ?? []
@@ -203,6 +216,12 @@ class NewSourceViewController: UIViewController {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        // if it isn't removed, an old search bar can potentially block pressing the filter
+        // header buttons in a newer source view controller for some reason
+        searchController.searchBar.removeFromSuperview()
     }
 
     override func viewDidLoad() {
@@ -252,6 +271,7 @@ class NewSourceViewController: UIViewController {
         // add search filters to scope bar
         searchController.searchBar.showsScopeBar = onlySearch
         searchController.searchBar.scopeButtonTitles = [""]
+        searchController.searchBar.scopeBarBackgroundImage = nil
         (searchController.searchBar.value(forKey: "_scopeBar") as? UIView)?.isHidden = true
 
         if
@@ -421,6 +441,8 @@ extension NewSourceViewController {
             // show search bar drawer if it was hidden
             if !self.source.hasListings {
                 self.navigationItem.searchController = self.searchController
+                // prevent the scope bar background from appearing
+                self.searchController.searchBar.scopeBarBackgroundImage = nil
             }
         } completion: { _ in
             // fade in search content
@@ -568,16 +590,17 @@ extension NewSourceViewController {
             // there's a bug where navigationlinks in settingview don't work in NavigationView/NavigationStack,
             // so we need to use a uikit navigation controller instead
 
+            let coordinator = NavigationCoordinator(rootViewController: self)
+
             let hostingController = UIHostingController(
                 rootView: SourceSettingsView(source: self.source)
-                    .environmentObject(NavigationCoordinator(rootViewController: self))
+                    .environmentObject(coordinator)
             )
             let navigationController = UINavigationController(rootViewController: hostingController)
             navigationController.navigationBar.prefersLargeTitles = true
 
             // update navigation coordinator
-            hostingController.rootView = SourceSettingsView(source: self.source)
-                .environmentObject(NavigationCoordinator(rootViewController: hostingController))
+            coordinator.rootViewController = hostingController
 
             present(navigationController, animated: true)
         }
