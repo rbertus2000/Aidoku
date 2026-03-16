@@ -468,8 +468,19 @@ class ReaderViewController: BaseObservingViewController {
     }
 
     @objc func openReaderSettings() {
+        let currentReader: Reader
+        switch reader {
+            case is ReaderTextViewController, is ReaderPagedTextViewController:
+                currentReader = .text
+            case is ReaderPagedViewController:
+                currentReader = .paged
+            case is ReaderWebtoonViewController:
+                currentReader = .scroll
+            default:
+                currentReader = .paged
+        }
         let vc = UIHostingController(
-            rootView: ReaderSettingsView(mangaId: manga.identifier)
+            rootView: ReaderSettingsView(mangaId: manga.identifier, reader: currentReader)
         )
         present(vc, animated: true)
     }
