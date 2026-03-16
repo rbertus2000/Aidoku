@@ -1,6 +1,7 @@
 //
 //  TextDoublePageViewController.swift
 //  Aidoku
+//
 
 import UIKit
 

@@ -440,6 +440,7 @@
 		FB9691562E89971F00BC0587 /* Color.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9691552E89971D00BC0587 /* Color.swift */; };
 		FB97BFFA2EC7BD6000235F87 /* SearchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB97BFF92EC7BD5F00235F87 /* SearchContentView.swift */; };
 		FB98ECAF2DE64779002FB089 /* HomeGridView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB98ECAE2DE64777002FB089 /* HomeGridView.swift */; };
+		FB99591E2F6863A700B632D5 /* ReaderTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB99591D2F6863A600B632D5 /* ReaderTextView.swift */; };
 		FB9A48332967E41400FFC414 /* MigrateSourceSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9A48322967E41400FFC414 /* MigrateSourceSelectionView.swift */; };
 		FB9A48352967E42B00FFC414 /* MangaToMangaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9A48342967E42B00FFC414 /* MangaToMangaView.swift */; };
 		FB9A48372967E44200FFC414 /* MigrateSearchMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9A48362967E44200FFC414 /* MigrateSearchMatchView.swift */; };
@@ -940,6 +941,7 @@
 		FB9691552E89971D00BC0587 /* Color.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Color.swift; sourceTree = "<group>"; };
 		FB97BFF92EC7BD5F00235F87 /* SearchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchContentView.swift; sourceTree = "<group>"; };
 		FB98ECAE2DE64777002FB089 /* HomeGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeGridView.swift; sourceTree = "<group>"; };
+		FB99591D2F6863A600B632D5 /* ReaderTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderTextView.swift; sourceTree = "<group>"; };
 		FB9A48322967E41400FFC414 /* MigrateSourceSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrateSourceSelectionView.swift; sourceTree = "<group>"; };
 		FB9A48342967E42B00FFC414 /* MangaToMangaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MangaToMangaView.swift; sourceTree = "<group>"; };
 		FB9A48362967E44200FFC414 /* MigrateSearchMatchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MigrateSearchMatchView.swift; sourceTree = "<group>"; };
@@ -2051,6 +2053,27 @@
 			path = Insights;
 			sourceTree = "<group>";
 		};
+		FB99591F2F68648300B632D5 /* Paged */ = {
+			isa = PBXGroup;
+			children = (
+				7CF79D392F31E81300BF0800 /* ReaderPagedTextViewController.swift */,
+				7C63F0D52F48FD4B007D1811 /* TextDoublePageViewController.swift */,
+				7C63F0D62F48FD4B007D1811 /* TextSinglePageViewController.swift */,
+				7CF79D3A2F31E81300BF0800 /* TextPaginator.swift */,
+				7C63F0D42F48FD4B007D1811 /* ChapterTransitionViewController.swift */,
+			);
+			path = Paged;
+			sourceTree = "<group>";
+		};
+		FB9959212F68649500B632D5 /* Scroll */ = {
+			isa = PBXGroup;
+			children = (
+				FBE3E4962DD401B100EF8145 /* ReaderTextViewController.swift */,
+				FB99591D2F6863A600B632D5 /* ReaderTextView.swift */,
+			);
+			path = Scroll;
+			sourceTree = "<group>";
+		};
 		FB9A483C2967E47500FFC414 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -2174,12 +2197,8 @@
 		FBE3E4952DD401A800EF8145 /* Text */ = {
 			isa = PBXGroup;
 			children = (
-				7C63F0D42F48FD4B007D1811 /* ChapterTransitionViewController.swift */,
-				7C63F0D52F48FD4B007D1811 /* TextDoublePageViewController.swift */,
-				7C63F0D62F48FD4B007D1811 /* TextSinglePageViewController.swift */,
-				7CF79D392F31E81300BF0800 /* ReaderPagedTextViewController.swift */,
-				7CF79D3A2F31E81300BF0800 /* TextPaginator.swift */,
-				FBE3E4962DD401B100EF8145 /* ReaderTextViewController.swift */,
+				FB9959212F68649500B632D5 /* Scroll */,
+				FB99591F2F68648300B632D5 /* Paged */,
 				FBE3E4982DD4046D00EF8145 /* ReaderTextViewModel.swift */,
 			);
 			path = Text;
@@ -2754,6 +2773,7 @@
 				FB4E579B2E352CAB006EF27C /* UIKeyModifierFlags.swift in Sources */,
 				FB2E02522868A67500786F21 /* TrackerView.swift in Sources */,
 				FB261ED32ECA63DB00743F56 /* KeyboardOffsetDetector.swift in Sources */,
+				FB99591E2F6863A700B632D5 /* ReaderTextView.swift in Sources */,
 				FB4B0AE8285D0A0E0066A13B /* Dictionary.swift in Sources */,
 				FB55AFA928AAB1440083EFC3 /* UIViewController.swift in Sources */,
 				FB0518322E0AEFF500CEE275 /* UpscaleProcessor.swift in Sources */,
