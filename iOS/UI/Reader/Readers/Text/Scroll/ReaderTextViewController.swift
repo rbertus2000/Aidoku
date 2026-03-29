@@ -41,6 +41,7 @@ class ReaderTextViewController: BaseViewController {
     private var loadingNext = false
     private var loadingPrevious = false
     private var hasReachedEnd = false
+    private var lastSafeAreaInsets: UIEdgeInsets = .zero
 
     private var isSliding = false
     private var estimatedPageCount = 1
@@ -286,8 +287,27 @@ class ReaderTextViewController: BaseViewController {
 
     // MARK: - Layout
 
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        // Compensate contentOffset when bars show/hide so visible text doesn't shift.
+        // contentInsetAdjustmentBehavior is .never, so we handle the delta manually.
+        let newInsets = view.safeAreaInsets
+        let topDelta = newInsets.top - lastSafeAreaInsets.top
+        lastSafeAreaInsets = newInsets
+        if topDelta != 0 {
+            var offset = scrollView.contentOffset
+            offset.y += topDelta
+            scrollView.contentOffset = offset
+        }
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+
+        // Capture initial safe area insets once the view is laid out
+        if lastSafeAreaInsets == .zero {
+            lastSafeAreaInsets = view.safeAreaInsets
+        }
 
         for hc in allHostingControllers {
             hc.view.invalidateIntrinsicContentSize()
@@ -665,8 +685,15 @@ extension ReaderTextViewController: ReaderReaderDelegate {
         let animated = UserDefaults.standard.bool(forKey: "Reader.animatePageTransitions")
         let prevHeight = showsPreviousTransition ? transitionPageHeight : 0
 
+        // Already scrolled into the previous transition area
         if scrollView.contentOffset.y <= prevHeight {
-            scrollView.setContentOffset(.init(x: 0, y: 0), animated: animated)
+            if scrollView.contentOffset.y <= 0 {
+                // Fully at top — trigger chapter load on second press
+                checkInfiniteLoad()
+            } else {
+                // Scroll to show the full transition view
+                scrollView.setContentOffset(.init(x: 0, y: 0), animated: animated)
+            }
             return
         }
 
@@ -677,6 +704,23 @@ extension ReaderTextViewController: ReaderReaderDelegate {
     func moveRight() {
         let animated = UserDefaults.standard.bool(forKey: "Reader.animatePageTransitions")
         let maxOffset = scrollView.contentSize.height - scrollView.bounds.height
+
+        // Check if we're already in the next transition area
+        if showsNextTransition {
+            // Calculate where the last section's content ends
+            let lastSectionEnd: CGFloat
+            if let lastIndex = sections.indices.last {
+                lastSectionEnd = sectionContentStartY(at: lastIndex) + sectionContentHeight(at: lastIndex)
+            } else {
+                lastSectionEnd = 0
+            }
+            let transitionStart = lastSectionEnd
+            if scrollView.contentOffset.y + scrollView.bounds.height >= transitionStart {
+                // Already seeing the transition — trigger chapter load
+                checkInfiniteLoad()
+                return
+            }
+        }
 
         let target = min(maxOffset, scrollView.contentOffset.y + scrollView.bounds.height * 2 / 3)
         scrollView.setContentOffset(.init(x: 0, y: target), animated: animated)
