@@ -41,7 +41,6 @@ class ReaderTextViewController: BaseViewController {
     private var loadingNext = false
     private var loadingPrevious = false
     private var hasReachedEnd = false
-    private var lastSafeAreaInsets: UIEdgeInsets = .zero
 
     private var isSliding = false
     private var estimatedPageCount = 1
@@ -49,6 +48,13 @@ class ReaderTextViewController: BaseViewController {
     private var isReportingProgress = false
     private var lastReportedPage = 0
     private var needsPageCountUpdate = false
+
+    /// Tracks the last known safe area insets so we can compensate content offset
+    /// when bars show/hide with `contentInsetAdjustmentBehavior = .never`.
+    private var lastSafeAreaInsets: UIEdgeInsets?
+    /// When true, suppresses hosting controller size invalidation to prevent
+    /// layout passes from undoing offset compensation during bar transitions.
+    private var isSafeAreaTransitioning = false
 
     // MARK: - Scroll Position Persistence
 
@@ -114,6 +120,9 @@ class ReaderTextViewController: BaseViewController {
         if #available(iOS 16.0, *) {
             hc.sizingOptions = .intrinsicContentSize
         }
+        if #available(iOS 16.4, *) {
+            hc.safeAreaRegions = []
+        }
         hc.view.backgroundColor = .clear
         return hc
     }
@@ -128,7 +137,9 @@ class ReaderTextViewController: BaseViewController {
     private var showsNextTransition = false
 
     private var transitionPageHeight: CGFloat {
-        scrollView.frame.height
+        // Use the full view height so transition pages stay a stable size
+        // regardless of bar visibility (scrollView.frame changes with safe area).
+        view.bounds.height
     }
 
     init(source: AidokuRunner.Source?, manga: AidokuRunner.Manga) {
@@ -289,46 +300,63 @@ class ReaderTextViewController: BaseViewController {
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        // Compensate contentOffset when bars show/hide so visible text doesn't shift.
-        // contentInsetAdjustmentBehavior is .never, so we handle the delta manually.
         let newInsets = view.safeAreaInsets
-        let topDelta = newInsets.top - lastSafeAreaInsets.top
-        lastSafeAreaInsets = newInsets
-        if topDelta != 0 {
-            var offset = scrollView.contentOffset
-            offset.y += topDelta
-            scrollView.contentOffset = offset
+        defer { lastSafeAreaInsets = newInsets }
+        guard let lastInsets = lastSafeAreaInsets else { return }
+        let topDelta = newInsets.top - lastInsets.top
+        guard topDelta != 0 else { return }
+
+        // On iOS 16.4+, safeAreaRegions = [] on the hosting controllers prevents
+        // them from resizing when bars show/hide — no compensation needed.
+        // On older iOS, suppress invalidation and compensate the offset manually.
+        if #unavailable(iOS 16.4) {
+            isSafeAreaTransitioning = true
+            setHostingControllerInvalidation(suppressed: true)
+            scrollView.contentOffset.y += topDelta
+        }
+    }
+
+    private func setHostingControllerInvalidation(suppressed: Bool) {
+        for hc in allHostingControllers {
+            (hc as? HostingController<ReaderTextView>)?.suppressInvalidation = suppressed
         }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
 
-        // Capture initial safe area insets once the view is laid out
-        if lastSafeAreaInsets == .zero {
-            lastSafeAreaInsets = view.safeAreaInsets
+        // During bar show/hide on iOS < 16.4, skip layout updates to prevent
+        // content shifting, then clear the suppression flags for the next pass.
+        if isSafeAreaTransitioning {
+            isSafeAreaTransitioning = false
+            setHostingControllerInvalidation(suppressed: false)
+            return
         }
 
         for hc in allHostingControllers {
             hc.view.invalidateIntrinsicContentSize()
         }
 
-        let screenHeight = scrollView.frame.height
+        let transHeight = transitionPageHeight
         if showsPreviousTransition {
-            prevHeightConstraint?.constant = screenHeight
+            prevHeightConstraint?.constant = transHeight
         }
         if showsNextTransition {
-            nextHeightConstraint?.constant = screenHeight
+            nextHeightConstraint?.constant = transHeight
         }
         // Keep inline transition views in sync
         for section in sections where section.transitionView != nil {
-            section.transitionHeightConstraint?.constant = screenHeight
+            section.transitionHeightConstraint?.constant = transHeight
         }
 
         if needsPageCountUpdate {
             updateEstimatedPageCount()
         }
     }
+}
+
+// MARK: - Section Helpers & Chapter Loading
+extension ReaderTextViewController {
 
     /// Recalculate estimated page count for the current chapter's section.
     private func updateEstimatedPageCount() {
@@ -356,7 +384,7 @@ class ReaderTextViewController: BaseViewController {
     // MARK: - Boundary Transition Views
 
     private func updateBoundaryTransitionViews() {
-        let screenHeight = scrollView.frame.height > 0 ? scrollView.frame.height : view.bounds.height
+        let screenHeight = transitionPageHeight
 
         // Previous transition (top) — shows info about the chapter before sections[0]
         if let prevView = previousTransitionView, let firstSection = sections.first {
@@ -530,7 +558,7 @@ class ReaderTextViewController: BaseViewController {
             await MainActor.run {
                 // Add an inline transition view after the last section
                 let lastSection = sections.last!
-                let screenHeight = scrollView.frame.height > 0 ? scrollView.frame.height : view.bounds.height
+                let screenHeight = transitionPageHeight
                 let tv = createInlineTransitionView(
                     finishedChapter: lastSection.chapter,
                     nextChapter: nextCh
@@ -596,7 +624,7 @@ class ReaderTextViewController: BaseViewController {
             }
 
             await MainActor.run {
-                let screenHeight = scrollView.frame.height > 0 ? scrollView.frame.height : view.bounds.height
+                let screenHeight = transitionPageHeight
                 let oldContentHeight = scrollView.contentSize.height
                 let oldOffset = scrollView.contentOffset.y
 
