@@ -302,6 +302,12 @@ class ReaderTextViewController: BaseViewController {
         super.viewSafeAreaInsetsDidChange()
         let newInsets = view.safeAreaInsets
         defer { lastSafeAreaInsets = newInsets }
+
+        // Keep content inset in sync so the scroll view allows scrolling
+        // past the content top (text starts below the navigation bar).
+        scrollView.contentInset = UIEdgeInsets(top: newInsets.top, left: 0, bottom: newInsets.bottom, right: 0)
+        scrollView.verticalScrollIndicatorInsets = scrollView.contentInset
+
         guard let lastInsets = lastSafeAreaInsets else { return }
         let topDelta = newInsets.top - lastInsets.top
         guard topDelta != 0 else { return }
@@ -494,6 +500,7 @@ extension ReaderTextViewController {
             needsPageCountUpdate = true
 
             let prevHeight = showsPreviousTransition ? transitionPageHeight : 0
+            let safeTop = scrollView.contentInset.top
 
             if restorePosition {
                 pendingScrollRestore = true
@@ -503,9 +510,15 @@ extension ReaderTextViewController {
                         self.updateEstimatedPageCount()
                         let sectionHeight = self.sectionContentHeight(at: 0)
                         let screenHeight = self.scrollView.frame.size.height
+                        let insetTop = self.scrollView.contentInset.top
                         if sectionHeight > 0, screenHeight > 0 {
-                            let targetOffset = prevHeight + (sectionHeight - screenHeight) * savedProgress
-                            self.scrollView.setContentOffset(CGPoint(x: 0, y: max(prevHeight, targetOffset)), animated: false)
+                            let scrollStart = prevHeight - insetTop
+                            let scrollableRange = sectionHeight - screenHeight + insetTop
+                            let targetOffset = scrollStart + scrollableRange * savedProgress
+                            self.scrollView.setContentOffset(
+                                CGPoint(x: 0, y: max(prevHeight - insetTop, targetOffset)),
+                                animated: false
+                            )
                             let currentPage = min(self.estimatedPageCount, Int(savedProgress * CGFloat(self.estimatedPageCount)) + 1)
                             self.lastReportedPage = currentPage
                             self.delegate?.setCurrentPage(currentPage, position: savedProgress)
@@ -514,7 +527,7 @@ extension ReaderTextViewController {
                     self.pendingScrollRestore = false
                 }
             } else {
-                scrollView.setContentOffset(.init(x: 0, y: prevHeight), animated: false)
+                scrollView.setContentOffset(.init(x: 0, y: prevHeight - safeTop), animated: false)
             }
 
             isLoadingChapter = false
