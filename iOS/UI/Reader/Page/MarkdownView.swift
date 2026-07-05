@@ -48,9 +48,17 @@ struct MarkdownView: View {
         .environment(
             \.openURL,
             OpenURLAction { url in
-                if url.scheme == "http" || url.scheme == "https" {
-                    safariUrl = url
-                    showSafari = true
+                Task {
+                    if
+                        let appDelegate = UIApplication.shared.delegate as? AppDelegate,
+                        await appDelegate.handleDeepLink(url: url)
+                    {
+                        // dismiss the reader so the pushed manga view is visible
+                        UIApplication.shared.firstKeyWindow?.rootViewController?.dismiss(animated: true)
+                    } else if url.scheme == "http" || url.scheme == "https" {
+                        safariUrl = url
+                        showSafari = true
+                    }
                 }
                 return .handled
             }

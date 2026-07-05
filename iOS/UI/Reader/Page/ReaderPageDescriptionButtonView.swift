@@ -61,6 +61,23 @@ struct PageDescriptionView: View {
                             Markdown(description)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding()
+                                .environment(
+                                    \.openURL,
+                                    OpenURLAction { url in
+                                        guard let appDelegate = UIApplication.shared.delegate as? AppDelegate else {
+                                            return .systemAction
+                                        }
+                                        Task {
+                                            if await appDelegate.handleDeepLink(url: url) {
+                                                // dismiss the sheet and reader so the pushed manga view is visible
+                                                UIApplication.shared.firstKeyWindow?.rootViewController?.dismiss(animated: true)
+                                            } else {
+                                                _ = await UIApplication.shared.open(url)
+                                            }
+                                        }
+                                        return .handled
+                                    }
+                                )
                         }
                     }
                 }
