@@ -329,12 +329,11 @@
 "TEXT_FONT_SIZE" = "Schriftgröße";
 "TEXT_LINE_SPACING" = "Zeilenabstand";
 "TEXT_HORIZONTAL_PADDING" = "Seitenrand";
-"TEXT_COLORS" = "Farben";
-"TEXT_BACKGROUND_COLOR_LIGHT" = "Hintergrundfarbe (Hell)";
-"TEXT_BACKGROUND_COLOR_DARK" = "Hintergrundfarbe (Dunkel)";
-"TEXT_COLOR_LIGHT" = "Textfarbe (Hell)";
-"TEXT_COLOR_DARK" = "Textfarbe (Dunkel)";
-"RESET_COLORS" = "Farben zurücksetzen";
+"TEXT_THEME_LIGHT" = "Farbschema (Hell)";
+"TEXT_THEME_DARK" = "Farbschema (Dunkel)";
+"TEXT_THEME_SEPIA" = "Sepia";
+"TEXT_THEME_PAPER" = "Papier";
+"TEXT_THEME_GRAY" = "Grau";
 
 // Manga Updates
 "MANGA_UPDATES" = "Updates";

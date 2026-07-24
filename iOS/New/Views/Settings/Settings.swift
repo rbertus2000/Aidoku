@@ -598,9 +598,22 @@ extension Settings {
                         value: .stepper(.init(minimumValue: 8, maximumValue: 48, stepValue: 4))
                     ),
                     .init(
-                        key: "Reader.textColors",
-                        title: NSLocalizedString("TEXT_COLORS"),
-                        value: .custom
+                        key: ReaderTextTheme.lightUserDefaultsKey,
+                        title: NSLocalizedString("TEXT_THEME_LIGHT"),
+                        notification: .init(ReaderTextTheme.changeNotification),
+                        value: .select(.init(
+                            values: ReaderTextTheme.allCases.map(\.rawValue),
+                            titles: ReaderSettingsView.textThemeTitles
+                        ))
+                    ),
+                    .init(
+                        key: ReaderTextTheme.darkUserDefaultsKey,
+                        title: NSLocalizedString("TEXT_THEME_DARK"),
+                        notification: .init(ReaderTextTheme.changeNotification),
+                        value: .select(.init(
+                            values: ReaderTextTheme.allCases.map(\.rawValue),
+                            titles: ReaderSettingsView.textThemeTitles
+                        ))
                     )
                 ]
             ))

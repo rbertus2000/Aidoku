@@ -244,7 +244,28 @@ struct ReaderSettingsView: View {
                                 value: .stepper(.init(minimumValue: 8, maximumValue: 48, stepValue: 4))
                             )
                         )
-                        ReaderTextColorSettingsRows()
+                        SettingView(
+                            setting: .init(
+                                key: ReaderTextTheme.lightUserDefaultsKey,
+                                title: NSLocalizedString("TEXT_THEME_LIGHT"),
+                                notification: .init(ReaderTextTheme.changeNotification),
+                                value: .select(.init(
+                                    values: ReaderTextTheme.allCases.map(\.rawValue),
+                                    titles: Self.textThemeTitles
+                                ))
+                            )
+                        )
+                        SettingView(
+                            setting: .init(
+                                key: ReaderTextTheme.darkUserDefaultsKey,
+                                title: NSLocalizedString("TEXT_THEME_DARK"),
+                                notification: .init(ReaderTextTheme.changeNotification),
+                                value: .select(.init(
+                                    values: ReaderTextTheme.allCases.map(\.rawValue),
+                                    titles: Self.textThemeTitles
+                                ))
+                            )
+                        )
                     }
                 } else {
                     if !downsampleImages.value {
@@ -403,65 +424,14 @@ struct ReaderSettingsView: View {
     }
 }
 
-/// The text reader color pickers with a reset row, shared between the
-/// in-reader settings and the global reader settings page.
-struct ReaderTextColorSettingsRows: View {
-    @State private var resetId = UUID()
-
-    var body: some View {
-        Group {
-            ReaderColorSettingView(
-                key: "Reader.textBackgroundColorLight",
-                title: NSLocalizedString("TEXT_BACKGROUND_COLOR_LIGHT"),
-                defaultColor: .systemBackground.resolvedColor(with: .init(userInterfaceStyle: .light))
-            )
-            ReaderColorSettingView(
-                key: "Reader.textBackgroundColorDark",
-                title: NSLocalizedString("TEXT_BACKGROUND_COLOR_DARK"),
-                defaultColor: .systemBackground.resolvedColor(with: .init(userInterfaceStyle: .dark))
-            )
-            ReaderColorSettingView(
-                key: "Reader.textColorLight",
-                title: NSLocalizedString("TEXT_COLOR_LIGHT"),
-                defaultColor: .label.resolvedColor(with: .init(userInterfaceStyle: .light))
-            )
-            ReaderColorSettingView(
-                key: "Reader.textColorDark",
-                title: NSLocalizedString("TEXT_COLOR_DARK"),
-                defaultColor: .label.resolvedColor(with: .init(userInterfaceStyle: .dark))
-            )
-        }
-        .id(resetId)
-        Button(NSLocalizedString("RESET_COLORS")) {
-            for key in ReaderTextTheme.userDefaultsKeys {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-            NotificationCenter.default.post(name: .init(ReaderTextTheme.changeNotification), object: nil)
-            resetId = UUID()
-        }
-    }
-}
-
-/// A color picker row that persists its color as a hex string in UserDefaults
-/// and notifies the text readers when it changes.
-private struct ReaderColorSettingView: View {
-    let key: String
-    let title: String
-
-    @State private var color: Color
-
-    init(key: String, title: String, defaultColor: UIColor) {
-        self.key = key
-        self.title = title
-        let saved = UserDefaults.standard.string(forKey: key).flatMap(UIColor.init(hexString:))
-        self._color = State(initialValue: Color(uiColor: saved ?? defaultColor))
-    }
-
-    var body: some View {
-        ColorPicker(title, selection: $color, supportsOpacity: false)
-            .onChange(of: color) { newValue in
-                UserDefaults.standard.set(UIColor(newValue).hexString, forKey: key)
-                NotificationCenter.default.post(name: .init(ReaderTextTheme.changeNotification), object: nil)
-            }
-    }
+extension ReaderSettingsView {
+    /// Localized titles for the text reader themes, in `ReaderTextTheme.allCases` order.
+    static let textThemeTitles: [String] = [
+        NSLocalizedString("READER_BG_COLOR_SYSTEM"),
+        NSLocalizedString("READER_BG_COLOR_WHITE"),
+        NSLocalizedString("TEXT_THEME_SEPIA"),
+        NSLocalizedString("TEXT_THEME_PAPER"),
+        NSLocalizedString("TEXT_THEME_GRAY"),
+        NSLocalizedString("READER_BG_COLOR_BLACK")
+    ]
 }

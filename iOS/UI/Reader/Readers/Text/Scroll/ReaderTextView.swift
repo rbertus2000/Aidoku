@@ -16,6 +16,8 @@ struct ReaderTextView: View {
    let fontSize: Double
    let lineSpacing: Double
    let horizontalPadding: Double
+   // stored (not read in body) so theme changes invalidate the view
+   let textColor = Color(uiColor: ReaderTextTheme.text)
 
    init(
        source: AidokuRunner.Source?,
@@ -69,7 +71,7 @@ struct ReaderTextView: View {
                fontSize: fontSize,
                lineSpacing: lineSpacing,
                horizontalPadding: horizontalPadding,
-               textColor: Color(uiColor: ReaderTextTheme.text)
+               textColor: textColor
            )
            .frame(maxWidth: .infinity, alignment: .leading)
            .ignoresSafeArea()
