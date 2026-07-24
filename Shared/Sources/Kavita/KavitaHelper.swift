@@ -167,6 +167,37 @@ struct KavitaHelper: Sendable {
         }
     }
 
+    // Fetch a raw string response (e.g. epub chapter html).
+    func requestString(path: String) async throws(SourceError) -> String {
+        let url = try getServerUrl(path: path)
+
+        func doRequest() async throws(SourceError) -> String? {
+            var request = URLRequest(url: url)
+            guard authorize(request: &request) else {
+                throw SourceError.message("NOT_LOGGED_IN")
+            }
+            guard
+                let result = try? await URLSession.shared.data(for: request),
+                let response = result.1 as? HTTPURLResponse
+            else {
+                throw SourceError.networkError
+            }
+            if response.statusCode == 401 {
+                return nil
+            }
+            return String(data: result.0, encoding: .utf8)
+        }
+
+        if let result = try await doRequest() {
+            return result
+        }
+        // retry after re-auth
+        guard try await refreshToken(), let result = try await doRequest() else {
+            throw SourceError.message("NOT_LOGGED_IN")
+        }
+        return result
+    }
+
     func refreshToken() async throws(SourceError) -> Bool {
         let url = try getServerUrl(path: "api/account/refresh-token")
 
