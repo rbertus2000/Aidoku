@@ -45,15 +45,17 @@ struct KomgaHelper: Sendable {
         path: String,
         method: HttpMethod = .GET,
         body: KomgaSearchBody? = nil,
+        accept: String = "application/json"
     ) async throws(SourceError) -> T {
         var dummy: URL?
-        return try await request(path: path, method: method, body: body, lastWorkingMirror: &dummy)
+        return try await request(path: path, method: method, body: body, accept: accept, lastWorkingMirror: &dummy)
     }
 
     func request<T: Decodable>(
         path: String,
         method: HttpMethod = .GET,
         body: KomgaSearchBody? = nil,
+        accept: String = "application/json",
         lastWorkingMirror: inout URL?
     ) async throws(SourceError) -> T {
         guard let auth = getAuthorizationHeader() else {
@@ -85,7 +87,7 @@ struct KomgaHelper: Sendable {
             }
             var request = URLRequest(url: url)
             request.setValue(auth, forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue(accept, forHTTPHeaderField: "Accept")
             request.httpMethod = method.stringValue
             if let body {
                 let encoder = JSONEncoder()
@@ -149,6 +151,23 @@ struct KomgaHelper: Sendable {
         }
 
         throw SourceError.networkError
+    }
+
+    // Fetch a raw string response (e.g. epub chapter xhtml).
+    func requestString(path: String) async throws(SourceError) -> String {
+        guard let auth = getAuthorizationHeader() else {
+            throw SourceError.message("NOT_LOGGED_IN")
+        }
+        let url = try getServerUrl(path: path)
+        var request = URLRequest(url: url)
+        request.setValue(auth, forHTTPHeaderField: "Authorization")
+        guard
+            let (data, _) = try? await URLSession.shared.data(for: request),
+            let string = String(data: data, encoding: .utf8)
+        else {
+            throw SourceError.networkError
+        }
+        return string
     }
 }
 
